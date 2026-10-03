@@ -80,7 +80,7 @@ ScopeLane never invents ScopeSeed IDs. A model-proposed feature ID must exist in
 
 GitHub support is optional and uses the authenticated GitHub CLI in the repository worktree.
 
-When `autoCreatePullRequest` is enabled, a successful pushed checkpoint creates/reuses the forward PR for the current lane. Merging remains explicit.
+When `autoCreatePullRequest` is enabled, a successful pushed checkpoint creates/reuses the forward PR for part lanes and non-feature lanes. Top-level feature lanes do not automatically open `F001 -> main`; use `/scopelane feature-pr` when integration is ready. Merging remains explicit.
 
 ## OpenCode permissions
 
