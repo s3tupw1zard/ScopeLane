@@ -270,6 +270,24 @@ export default Plugin.define({
         }
       }
 
+      const worktreeClient = {
+        refresh: (input: { projectID: string }) => ctx.worktree.refresh(input),
+        list: (input: { projectID: string }) => ctx.worktree.list(input),
+        create: (input: {
+          projectID: string
+          name: string
+          branch: string
+          from?: string
+        }) => ctx.worktree.create(input),
+        branchAt: async (directory: string) => {
+          try {
+            return await new GitRepository(directory, config.branches).currentBranch()
+          } catch {
+            return undefined
+          }
+        },
+      }
+
       const lane = await ensureLane(
         {
           projectID: session.projectID,
@@ -279,7 +297,7 @@ export default Plugin.define({
         },
         config.branches,
         git,
-        ctx.worktree,
+        worktreeClient,
       )
 
       await persistFeaturePlan(decision, plan)
@@ -294,11 +312,7 @@ export default Plugin.define({
       }
       await saveSessionState(state)
 
-      await ctx.session.move({
-        sessionID,
-        destination: { directory: lane.directory },
-        moveChanges: false,
-      })
+      await ctx.session.move({ sessionID, directory: lane.directory })
     }
 
     const ensurePullRequest = async (
