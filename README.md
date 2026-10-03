@@ -25,8 +25,12 @@ Early implementation. The first slice provides:
 - deterministic Git mutation guard for coding-agent shell access
 - persistent plugin configuration
 - foundation types for session lanes and feature state
-- tests for branch naming and Git safety
+- safe plain-Git branch creation from parent refs
+- native OpenCode V2 worktree creation and reuse
+- race-safe lane resolution for concurrent sessions
+- session-move abstraction for stable `ctx.session.move()`
+- tests for branch naming, Git safety, and lane orchestration
 
-Next slices add native worktree/session orchestration, ScopeSeed integration, semantic checkpoint planning, hunk-level commit validation, batch pushes, and optional GitHub PR automation.
+Next slices bind lane resolution to the live session lifecycle, add ScopeSeed integration, semantic checkpoint planning, hunk-level commit validation, batch pushes, and optional GitHub PR automation.
 
 See [docs/architecture.md](docs/architecture.md) for the current design.
