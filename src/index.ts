@@ -8,7 +8,7 @@ export default Plugin.define({
   async setup(ctx) {
     const config = resolveConfig(ctx.options)
 
-    await ctx.storage.set("effective-config", config)
+    await ctx.storage.set("effective-config", JSON.parse(JSON.stringify(config)))
 
     await ctx.permission.hook("evaluate", (event) => {
       if (event.action !== "shell") return
