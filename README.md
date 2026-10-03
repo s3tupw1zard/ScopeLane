@@ -120,7 +120,7 @@ A feature can start as `feat/F001-name` and later be promoted to an integration 
 - `feature-pr`: create/reuse the feature-parent PR into the repository default branch (`F001 -> main`).
 - `feature-sync`: create/reuse the default-branch PR into the feature parent (`main -> F001`).
 
-ScopeLane never locally merges those relationships. GitHub integration uses the `gh` CLI and remains disabled by default.
+ScopeLane never locally merges those relationships. GitHub integration uses the `gh` CLI and remains disabled by default. Automatic PR creation intentionally skips a top-level feature lane (`F001 -> main`); use `feature-pr` when the integrated feature is actually ready.
 
 ## Safety invariants
 
