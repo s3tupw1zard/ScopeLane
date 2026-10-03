@@ -182,7 +182,16 @@ ${prompt.slice(0, 12_000)}`)
       slug: slugifyBranchSegment(feature.name) || slug,
       confidence,
       reason,
-      ...(parts ? {\n        activePart: typeof parsed.activePart === "string" && parts.some((part) => part.label === parsed.activePart) ? parsed.activePart : parts[0]?.label,\n        split: { parts },\n      } : {}),
+      ...(parts
+        ? {
+            activePart:
+              typeof parsed.activePart === "string" &&
+              parts.some((part) => part.label === parsed.activePart)
+                ? parsed.activePart
+                : parts[0]?.label,
+            split: { parts },
+          }
+        : {}),
     }
   }
 
