@@ -2,9 +2,8 @@ import type { BranchConfig } from "../config"
 import { isProtectedBranch, slugifyBranchSegment } from "../git/branch"
 
 export interface WorktreeInfo {
-  name: string
-  branch?: string
   directory: string
+  strategy?: string
 }
 
 export interface WorktreeClient {
@@ -15,7 +14,8 @@ export interface WorktreeClient {
     name: string
     branch: string
     from?: string
-  }): Promise<WorktreeInfo>
+  }): Promise<{ directory: string }>
+  branchAt(directory: string): Promise<string | undefined>
 }
 
 export interface BranchClient {
@@ -44,7 +44,22 @@ export interface LaneResult {
 function laneName(branch: string): string {
   const normalized = slugifyBranchSegment(branch.replaceAll("/", "-"))
   if (!normalized) throw new Error("ScopeLane: could not derive a worktree name")
-  return `scopelane-${normalized}`
+  return "scopelane-" + normalized
+}
+
+async function findBranchWorktree(
+  items: readonly WorktreeInfo[],
+  branch: string,
+  worktree: WorktreeClient,
+): Promise<WorktreeInfo | undefined> {
+  for (const item of items) {
+    try {
+      if ((await worktree.branchAt(item.directory)) === branch) return item
+    } catch {
+      // Inventory can contain stale/unavailable directories until refresh settles.
+    }
+  }
+  return undefined
 }
 
 export async function ensureLane(
@@ -54,31 +69,28 @@ export async function ensureLane(
   worktree: WorktreeClient,
 ): Promise<LaneResult> {
   if (isProtectedBranch(input.branch, config)) {
-    throw new Error(`ScopeLane: refusing to create a lane for protected branch "${input.branch}"`)
+    throw new Error('ScopeLane: refusing to create a lane for protected branch "' + input.branch + '"')
   }
-
   if (input.branch === input.baseBranch) {
     throw new Error("ScopeLane: target branch must differ from its base branch")
   }
 
   const branch = await git.ensureBranch(input.branch, input.baseBranch)
-
   await worktree.refresh({ projectID: input.projectID })
   const inventory = await worktree.list({ projectID: input.projectID })
-  const existing = inventory.find((item) => item.branch === input.branch)
+  const existing = await findBranchWorktree(inventory, input.branch, worktree)
+  const name = laneName(input.branch)
 
   if (existing) {
     return {
       branch: input.branch,
       baseBranch: input.baseBranch,
       directory: existing.directory,
-      worktreeName: existing.name,
+      worktreeName: name,
       branchCreated: branch.created,
       worktreeCreated: false,
     }
   }
-
-  const name = laneName(input.branch)
 
   try {
     const created = await worktree.create({
@@ -87,39 +99,34 @@ export async function ensureLane(
       branch: input.branch,
       ...(input.sourceDirectory ? { from: input.sourceDirectory } : {}),
     })
-
-    if (created.branch && created.branch !== input.branch) {
+    const actual = await worktree.branchAt(created.directory)
+    if (actual !== input.branch) {
       throw new Error(
-        `ScopeLane: worktree strategy returned branch "${created.branch}", expected "${input.branch}"`,
+        'ScopeLane: created worktree is on branch "' + actual + '", expected "' + input.branch + '"',
       )
     }
-
     return {
       branch: input.branch,
       baseBranch: input.baseBranch,
       directory: created.directory,
-      worktreeName: created.name,
+      worktreeName: name,
       branchCreated: branch.created,
       worktreeCreated: true,
     }
   } catch (error) {
-    // Worktree creation can race when two sessions resolve the same lane at
-    // nearly the same time. Refresh once and reuse the winner if it now exists.
     await worktree.refresh({ projectID: input.projectID })
     const refreshed = await worktree.list({ projectID: input.projectID })
-    const winner = refreshed.find((item) => item.branch === input.branch)
-
+    const winner = await findBranchWorktree(refreshed, input.branch, worktree)
     if (winner) {
       return {
         branch: input.branch,
         baseBranch: input.baseBranch,
         directory: winner.directory,
-        worktreeName: winner.name,
+        worktreeName: name,
         branchCreated: branch.created,
         worktreeCreated: false,
       }
     }
-
     throw error
   }
 }

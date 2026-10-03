@@ -294,12 +294,6 @@ export default Plugin.define({
       }
       await saveSessionState(state)
 
-      await ctx.permission.rules({
-        sessionID,
-        permissions: [
-          { action: "edit", resource: session.location.directory + "/**", effect: "deny" },
-        ],
-      })
       await ctx.session.move({
         sessionID,
         destination: { directory: lane.directory },
@@ -463,7 +457,7 @@ export default Plugin.define({
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           if (event.type !== "session.idle" || !config.checkpoint.onIdle) continue
-          const sessionID = event.properties.sessionID
+          const sessionID = event.data.sessionID
           void checkpoint(sessionID, true).catch(async (error) => {
             const message = error instanceof Error ? error.message : String(error)
             await ctx.session.synthetic({
