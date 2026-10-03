@@ -27,24 +27,26 @@ function featureKey(featureID: string): string {
 function asSessionState(value: unknown): SessionLaneState | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   const candidate = value as Partial<SessionLaneState>
-  return
+  return (
     typeof candidate.sessionId === "string" &&
     typeof candidate.branch === "string" &&
     typeof candidate.baseBranch === "string" &&
     typeof candidate.worktree === "string"
       ? (candidate as SessionLaneState)
       : undefined
+  )
 }
 
 function asFeatureState(value: unknown): FeatureState | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   const candidate = value as Partial<FeatureState>
-  return
+  return (
     typeof candidate.featureId === "string" &&
     typeof candidate.parentBranch === "string" &&
     Array.isArray(candidate.parts)
       ? (candidate as FeatureState)
       : undefined
+  )
 }
 
 function chooseExistingPart(
