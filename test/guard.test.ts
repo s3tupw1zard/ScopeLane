@@ -19,7 +19,10 @@ describe("Git mutation guard", () => {
     expect(isGitMutationCommand("git branch -D old-branch")).toBe(true)
   })
 
-  test("blocks mutation hidden in a compound command", () => {
+  test("blocks mutation hidden in a compound or nested shell command", () => {
     expect(isGitMutationCommand("git status && git push origin HEAD")).toBe(true)
+    expect(isGitMutationCommand('bash -lc "git push origin HEAD"')).toBe(true)
+    expect(isGitMutationCommand("sh -c 'git commit -m change'")).toBe(true)
+    expect(isGitMutationCommand('bash -lc "git status --short"')).toBe(false)
   })
 })

@@ -80,6 +80,43 @@ describe("lane orchestration", () => {
     expect(worktrees.creates()).toBe(0)
   })
 
+  test("reuses a concurrently-created worktree after a creation race", async () => {
+    const winner: WorktreeInfo = {
+      name: "scopelane-feat-f001-panel-auth",
+      branch: "feat/F001-panel-auth",
+      directory: "/worktrees/race-winner",
+    }
+
+    let listed = false
+    const worktree: WorktreeClient = {
+      async refresh() {},
+      async list() {
+        if (!listed) {
+          listed = true
+          return []
+        }
+        return [winner]
+      },
+      async create() {
+        throw new Error("already checked out")
+      },
+    }
+
+    const result = await ensureLane(
+      {
+        projectID: "project-1",
+        branch: "feat/F001-panel-auth",
+        baseBranch: "main",
+      },
+      DEFAULT_CONFIG.branches,
+      fakeGit(false),
+      worktree,
+    )
+
+    expect(result.directory).toBe("/worktrees/race-winner")
+    expect(result.worktreeCreated).toBe(false)
+  })
+
   test("never creates a lane on a protected branch", async () => {
     const worktrees = fakeWorktrees()
 

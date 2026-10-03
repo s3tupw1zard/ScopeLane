@@ -15,6 +15,8 @@ const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   "merge-base",
 ])
 
+const SHELL_EXECUTABLES = new Set(["sh", "bash", "zsh", "dash", "ksh"])
+
 function tokenize(command: string): string[] {
   return command.match(/(?:[^\s"'\\]+|"(?:\\.|[^"])*"|'[^']*')+/g) ?? []
 }
@@ -29,9 +31,13 @@ function unquote(token: string): string {
   return token
 }
 
-function gitExecutable(token: string): boolean {
+function executableName(token: string): string {
   const clean = unquote(token)
-  return clean === "git" || clean.endsWith("/git")
+  return clean.slice(clean.lastIndexOf("/") + 1)
+}
+
+function gitExecutable(token: string): boolean {
+  return executableName(token) === "git"
 }
 
 function readGitSubcommand(tokens: string[], gitIndex: number): { subcommand?: string; index: number } {
@@ -85,7 +91,29 @@ function isSafeRemoteInspection(tokens: string[], subcommandIndex: number): bool
   return first === "-v" || first === "show" || first === "get-url"
 }
 
-export function isGitMutationCommand(command: string): boolean {
+function nestedShellCommands(tokens: string[]): string[] {
+  const nested: string[] = []
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!SHELL_EXECUTABLES.has(executableName(tokens[index]!))) continue
+
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      const option = unquote(tokens[cursor]!)
+      if (!option.startsWith("-")) break
+      if (!/^-[^-]*c/.test(option)) continue
+
+      const command = tokens[cursor + 1]
+      if (command) nested.push(unquote(command))
+      break
+    }
+  }
+
+  return nested
+}
+
+export function isGitMutationCommand(command: string, depth = 0): boolean {
+  if (depth > 4) return true
+
   const tokens = tokenize(command)
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -112,5 +140,5 @@ export function isGitMutationCommand(command: string): boolean {
     return true
   }
 
-  return false
+  return nestedShellCommands(tokens).some((nested) => isGitMutationCommand(nested, depth + 1))
 }

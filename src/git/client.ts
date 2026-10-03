@@ -80,8 +80,17 @@ export class GitClient {
     }
 
     const startPoint = await this.resolveStartPoint(baseBranch)
-    await this.run(["branch", "--no-track", branch, startPoint])
 
-    return { branch, startPoint, created: true }
+    try {
+      await this.run(["branch", "--no-track", branch, startPoint])
+      return { branch, startPoint, created: true }
+    } catch (error) {
+      // Another ScopeLane session may have created the same branch between the
+      // existence check and branch creation. Treat that race as idempotent.
+      if (await this.hasLocalBranch(branch)) {
+        return { branch, startPoint: branch, created: false }
+      }
+      throw error
+    }
   }
 }

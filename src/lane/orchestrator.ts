@@ -79,25 +79,47 @@ export async function ensureLane(
   }
 
   const name = laneName(input.branch)
-  const created = await worktree.create({
-    projectID: input.projectID,
-    name,
-    branch: input.branch,
-    ...(input.sourceDirectory ? { from: input.sourceDirectory } : {}),
-  })
 
-  if (created.branch && created.branch !== input.branch) {
-    throw new Error(
-      `ScopeLane: worktree strategy returned branch "${created.branch}", expected "${input.branch}"`,
-    )
-  }
+  try {
+    const created = await worktree.create({
+      projectID: input.projectID,
+      name,
+      branch: input.branch,
+      ...(input.sourceDirectory ? { from: input.sourceDirectory } : {}),
+    })
 
-  return {
-    branch: input.branch,
-    baseBranch: input.baseBranch,
-    directory: created.directory,
-    worktreeName: created.name,
-    branchCreated: branch.created,
-    worktreeCreated: true,
+    if (created.branch && created.branch !== input.branch) {
+      throw new Error(
+        `ScopeLane: worktree strategy returned branch "${created.branch}", expected "${input.branch}"`,
+      )
+    }
+
+    return {
+      branch: input.branch,
+      baseBranch: input.baseBranch,
+      directory: created.directory,
+      worktreeName: created.name,
+      branchCreated: branch.created,
+      worktreeCreated: true,
+    }
+  } catch (error) {
+    // Worktree creation can race when two sessions resolve the same lane at
+    // nearly the same time. Refresh once and reuse the winner if it now exists.
+    await worktree.refresh({ projectID: input.projectID })
+    const refreshed = await worktree.list({ projectID: input.projectID })
+    const winner = refreshed.find((item) => item.branch === input.branch)
+
+    if (winner) {
+      return {
+        branch: input.branch,
+        baseBranch: input.baseBranch,
+        directory: winner.directory,
+        worktreeName: winner.name,
+        branchCreated: branch.created,
+        worktreeCreated: false,
+      }
+    }
+
+    throw error
   }
 }
