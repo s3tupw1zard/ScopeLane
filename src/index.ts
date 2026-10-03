@@ -76,7 +76,7 @@ function chooseExistingPart(
     })
     .sort((a, b) => b.score - a.score)
 
-  return scored[0]?.score ? scored[0].part : feature.parts[0]
+  return scored[0]?.score ? scored[0].part : undefined
 }
 
 function planFromExistingFeature(
@@ -162,6 +162,56 @@ export default Plugin.define({
       return output.text
     }
 
+    const resolveExistingPart = async (
+      session: Awaited<ReturnType<typeof ctx.session.get>>,
+      prompt: string,
+      feature: FeatureState,
+    ) => {
+      const deterministic = chooseExistingPart(prompt, {
+        kind: "feature",
+        slug: feature.featureId.toLowerCase(),
+        confidence: 1,
+        reason: "existing split feature",
+        featureId: feature.featureId,
+      }, feature)
+      if (deterministic) return deterministic
+
+      const inventory = feature.parts
+        .map(
+          (part) =>
+            part.part +
+            ": " +
+            (part.slug ?? part.branch) +
+            (part.description ? " — " + part.description : ""),
+        )
+        .join("\n")
+
+      const output = await generatedText(
+        session,
+        [
+          "You are selecting the existing ScopeLane part for " + feature.featureId + ".",
+          "Choose only from the listed labels. Do not invent another part.",
+          "If the task is too ambiguous to choose safely, return null.",
+          "Return JSON only: {\"part\":\"A\"} or {\"part\":null}.",
+          "",
+          "PARTS:",
+          inventory,
+          "",
+          "TASK:",
+          prompt.slice(0, 8_000),
+        ].join("\n"),
+      )
+
+      try {
+        const json = output.match(/\{[\s\S]*\}/)?.[0]
+        const parsed = json ? (JSON.parse(json) as { part?: unknown }) : undefined
+        const label = typeof parsed?.part === "string" ? parsed.part.toUpperCase() : undefined
+        return label ? feature.parts.find((part) => part.part === label) : undefined
+      } catch {
+        return undefined
+      }
+    }
+
     const resolveLanePlan = async (
       session: Awaited<ReturnType<typeof ctx.session.get>>,
       prompt: string,
@@ -176,8 +226,20 @@ export default Plugin.define({
       if (decision.featureId) {
         const existing = await loadFeatureState(decision.featureId)
         if (existing && (existing.mode === "split" || existing.mode === "integration-only")) {
-          const chosen = chooseExistingPart(prompt, decision, existing)
-          if (chosen) decision.activePart = chosen.part
+          const chosen =
+            chooseExistingPart(prompt, decision, existing) ??
+            (await resolveExistingPart(session, prompt, existing))
+          if (!chosen) {
+            throw new Error(
+              "ScopeLane: " +
+                existing.featureId +
+                " is split, but the task does not identify a part clearly enough. " +
+                "Mention the target explicitly (for example " +
+                existing.featureId +
+                "-A).",
+            )
+          }
+          decision.activePart = chosen.part
           const persisted = planFromExistingFeature(decision, existing, defaultBranch)
           if (persisted) return { decision, plan: persisted, defaultBranch, existing }
         }
@@ -485,7 +547,8 @@ export default Plugin.define({
         if (
           pushed &&
           config.github.enabled &&
-          config.github.autoCreatePullRequest
+          config.github.autoCreatePullRequest &&
+          (!state.featureId || Boolean(state.part))
         ) {
           const pull = await ensurePullRequest(state, "forward")
           pr = " PR: " + pull.url
