@@ -8,6 +8,7 @@ export interface PlannedLane {
   role: "work" | "integration"
   featureId?: string
   part?: string
+  slug?: string
   description?: string
 }
 
