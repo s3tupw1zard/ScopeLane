@@ -15,8 +15,8 @@ function fakeWorktrees(initial: Array<WorktreeInfo & { branch?: string }> = []) 
   let creates = 0
   const client: WorktreeClient = {
     async refresh() {},
-    async list() { return items }
-    async branchAt(directory) { return items.find((item) => item.directory === directory)?.branch }
+    async list() { return items },
+    async branchAt(directory) { return items.find((item) => item.directory === directory)?.branch },
     async create(input) {
       creates += 1
       const value = {
