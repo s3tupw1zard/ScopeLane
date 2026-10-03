@@ -43,4 +43,4 @@ Events such as `session.idle`, explicit commands, large diffs, or a meaningful s
 
 Protected branches are configurable and default to `main`, `master`, and `trunk`. ScopeLane must reject direct commits and pushes to them. Coding sessions receive read-only Git access; ScopeLane performs controlled Git mutations itself.
 
-The current implementation slice establishes configuration, branch naming/parsing, persistent plugin setup, and the Git mutation guard. Worktree orchestration and semantic commit planning follow on top of these invariants.
+The current implementation slice establishes configuration, branch naming/parsing, persistent plugin setup, the Git mutation guard, safe branch creation, and native V2 worktree orchestration. Session lifecycle binding, ScopeSeed decisions, and semantic commit planning follow on top of these invariants.
