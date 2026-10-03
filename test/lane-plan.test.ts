@@ -89,3 +89,31 @@ describe("integration parent invariants", () => {
     expect([plan.active, ...plan.siblings].every((lane) => /^feat\/F042-[A-Z]-/.test(lane.branch))).toBe(true)
   })
 })
+
+
+describe("single-to-split promotion", () => {
+  test("keeps the existing feature branch as the integration parent", () => {
+    const plan = planLanes(
+      {
+        kind: "feature",
+        featureId: "F001",
+        slug: "panel-auth",
+        confidence: 1,
+        reason: "feature grew into parallel workstreams",
+        activePart: "A",
+        split: {
+          parts: [
+            { label: "A", slug: "tokens", description: "Token lifecycle" },
+            { label: "B", slug: "ui", description: "Authentication UI" },
+          ],
+        },
+      },
+      "main",
+      DEFAULT_CONFIG.branches,
+    )
+
+    expect(plan.parent?.branch).toBe("feat/F001-panel-auth")
+    expect(plan.active.baseBranch).toBe("feat/F001-panel-auth")
+    expect(plan.active.branch).toBe("feat/F001-A-tokens")
+  })
+})

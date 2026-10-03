@@ -181,9 +181,6 @@ export default Plugin.define({
           const persisted = planFromExistingFeature(decision, existing, defaultBranch)
           if (persisted) return { decision, plan: persisted, defaultBranch, existing }
         }
-        if (existing?.mode === "single") {
-          decision.split = undefined
-        }
       }
 
       return {
@@ -260,37 +257,53 @@ export default Plugin.define({
 
       const repository = new GitRepository(session.location.directory, config.branches)
       const currentBranch = await repository.currentBranch()
+      let preResolved:
+        | Awaited<ReturnType<typeof resolveLanePlan>>
+        | undefined
+
       if (currentBranch && !config.branches.protected.includes(currentBranch)) {
         const parsed = parseFeatureBranch(currentBranch, config.branches)
         const feature =
           parsed?.kind === "feature" ? await loadFeatureState(parsed.featureId) : undefined
-        const integrationOnly =
-          feature &&
-          feature.parentBranch === currentBranch &&
-          (feature.mode === "split" || feature.mode === "integration-only")
+        const isFeatureParent =
+          Boolean(feature) && feature!.parentBranch === currentBranch && parsed?.kind === "feature"
 
-        if (!integrationOnly) {
+        if (isFeatureParent) {
+          preResolved = await resolveLanePlan(session, prompt, repository)
+          const wantsSplit =
+            feature?.mode === "single" &&
+            preResolved.plan.parent?.branch === currentBranch
+          const integrationOnly =
+            feature?.mode === "split" || feature?.mode === "integration-only"
+
+          if (!wantsSplit && !integrationOnly) {
+            await adoptCurrentLane(session, currentBranch, repository, prompt)
+            return
+          }
+
+          if (await repository.isDirty()) {
+            throw new Error(
+              "ScopeLane: " +
+                currentBranch +
+                (integrationOnly
+                  ? " is an integration-only feature parent"
+                  : " must be clean before it can be promoted to an integration parent") +
+                ". Run /scopelane checkpoint and finish pending work first.",
+            )
+          }
+        } else {
           await adoptCurrentLane(session, currentBranch, repository, prompt)
           return
-        }
-
-        if (await repository.isDirty()) {
-          throw new Error(
-            "ScopeLane: " +
-              currentBranch +
-              " is an integration-only feature parent with uncommitted changes. " +
-              "Move or clean those changes before starting implementation work.",
-          )
         }
       }
 
       if (await repository.isDirty()) {
         throw new Error(
-          "ScopeLane: the protected source checkout has uncommitted changes. Clean or move them before starting a new lane.",
+          "ScopeLane: the source checkout has uncommitted changes. Clean or move them before starting a new lane.",
         )
       }
 
-      const { decision, plan } = await resolveLanePlan(session, prompt, repository)
+      const { decision, plan } = preResolved ?? (await resolveLanePlan(session, prompt, repository))
       const git = new GitClient(session.location.directory, config.branches)
 
       if (plan.parent) {
@@ -556,7 +569,7 @@ export default Plugin.define({
     await ctx.command.transform((editor) => {
       editor.add({
         name: "scopelane",
-        description: "Show status, checkpoint work, or create lane/feature integration pull requests.",
+        description: "Show status, checkpoint or split work, and create lane/feature integration pull requests.",
         execute: async ({ sessionID, prompt }) => {
           const args = prompt.text.trim().replace(/^\/?scopelane(?:\s+|$)/i, "").trim()
           const action = args.split(/\s+/)[0]?.toLowerCase() || "status"
@@ -565,6 +578,67 @@ export default Plugin.define({
           if (action === "checkpoint") {
             const result = await checkpoint(sessionID, false, { force: true })
             await ctx.session.synthetic({ sessionID, text: result })
+            return
+          }
+
+          if (action === "split") {
+            if (!state?.featureId || state.part) {
+              await ctx.session.synthetic({
+                sessionID,
+                text: "ScopeLane: split is available only from a top-level feature lane.",
+              })
+              return
+            }
+
+            const feature = await loadFeatureState(state.featureId)
+            if (feature && feature.mode !== "single") {
+              await ctx.session.synthetic({
+                sessionID,
+                text: "ScopeLane: feature " + state.featureId + " is already split/integration-only.",
+              })
+              return
+            }
+
+            const repository = new GitRepository(state.worktree, config.branches)
+            if (await repository.isDirty()) {
+              await checkpoint(sessionID, false, { force: true })
+            }
+            if (await repository.isDirty()) {
+              await ctx.session.synthetic({
+                sessionID,
+                text:
+                  "ScopeLane: the feature still has pending/uncommitted work. " +
+                  "Finish that logical unit before splitting the feature.",
+              })
+              return
+            }
+
+            const detail = args.replace(/^split(?:\s+|$)/i, "").trim()
+            await ctx.storage.remove(sessionKey(sessionID))
+            await withLaneLock(sessionID, () =>
+              ensureSessionLane(
+                sessionID,
+                "Split " +
+                  state.featureId +
+                  " into parallel implementation parts only if it remains one coherent feature. " +
+                  detail,
+              ),
+            )
+
+            const moved = await loadSessionState(sessionID)
+            await ctx.session.synthetic({
+              sessionID,
+              text:
+                moved && moved.part
+                  ? "ScopeLane: promoted " +
+                    state.featureId +
+                    " to an integration parent and moved this session to " +
+                    moved.branch +
+                    "."
+                  : "ScopeLane: no useful one-level split was identified; the feature remains on " +
+                    state.branch +
+                    ".",
+            })
             return
           }
 
