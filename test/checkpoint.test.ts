@@ -27,9 +27,17 @@ describe("change units", () => {
     expect(units[1]?.id).toBe("p2")
   })
 
-  test("adds untracked files as whole-file units", () => {
-    const units = appendUntrackedUnits(parseWorkingDiff(diff), ["lib/new.ts"])
-    expect(units.at(-1)).toMatchObject({ kind: "untracked", path: "lib/new.ts" })
+  test("adds untracked files as whole-file units with optional semantic previews", () => {
+    const units = appendUntrackedUnits(
+      parseWorkingDiff(diff),
+      ["lib/new.ts"],
+      new Map([["lib/new.ts", "export const value = 1\n"]]),
+    )
+    expect(units.at(-1)).toMatchObject({
+      kind: "untracked",
+      path: "lib/new.ts",
+      preview: "export const value = 1\n",
+    })
   })
 })
 
@@ -63,6 +71,18 @@ describe("semantic commit planning", () => {
         DEFAULT_CONFIG.checkpoint,
       ),
     ).toThrow("more than once")
+  })
+
+  test("planner receives actual hunk content for semantic grouping", async () => {
+    let received = ""
+    await planCheckpoint(units, DEFAULT_CONFIG.checkpoint, {
+      async text(prompt) {
+        received = prompt
+        return JSON.stringify({ commits: [], pending: units.map((unit) => unit.id) })
+      },
+    })
+    expect(received).toContain("-old")
+    expect(received).toContain("+new")
   })
 
   test("planner may deliberately create no commits", async () => {

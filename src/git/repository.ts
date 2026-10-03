@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -99,6 +99,37 @@ export class GitRepository {
     return result
   }
 
+  private async untrackedPreviews(
+    paths: readonly string[],
+    maxBytes: number,
+  ): Promise<Map<string, string>> {
+    const previews = new Map<string, string>()
+    const perFileLimit = 16 * 1024
+    let remaining = Math.min(maxBytes, 64 * 1024)
+
+    for (const path of paths) {
+      if (remaining <= 0) break
+      try {
+        const content = await readFile(join(this.directory, path))
+        const sample = content.subarray(0, Math.min(content.length, perFileLimit, remaining))
+        remaining -= sample.length
+        if (sample.includes(0)) continue
+        const text = sample.toString("utf8")
+        previews.set(
+          path,
+          content.length > sample.length
+            ? text + "\n… (preview truncated)"
+            : text,
+        )
+      } catch {
+        // The fingerprint still protects the file. A missing preview only reduces
+        // semantic context for planning and must not make the checkpoint unsafe.
+      }
+    }
+
+    return previews
+  }
+
   async snapshot(config: CheckpointConfig): Promise<WorkingSnapshot> {
     const [head, branch, diff, untrackedRaw] = await Promise.all([
       this.head(),
@@ -116,8 +147,11 @@ export class GitRepository {
     }
 
     const untracked = untrackedRaw.split("\0").filter(Boolean)
-    const units = appendUntrackedUnits(parseWorkingDiff(diff), untracked)
-    const untrackedHashes = await this.untrackedHashes(untracked)
+    const [untrackedHashes, previews] = await Promise.all([
+      this.untrackedHashes(untracked),
+      this.untrackedPreviews(untracked, Math.floor(config.maxDiffBytes / 3)),
+    ])
+    const units = appendUntrackedUnits(parseWorkingDiff(diff), untracked, previews)
     const fingerprint = createHash("sha256")
       .update(head)
       .update("\0")

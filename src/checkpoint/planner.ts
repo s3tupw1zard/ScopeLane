@@ -108,8 +108,22 @@ export async function planCheckpoint(
   }
 
   const inventory = units
-    .map((unit) => unit.id + " | " + unit.path + " | " + unit.summary)
-    .join("\n")
+    .map((unit) => {
+      const detail =
+        unit.kind === "patch"
+          ? unit.patch
+          : unit.preview
+            ? unit.preview
+            : "(untracked file content preview unavailable)"
+      return [
+        "### " + unit.id + " | " + unit.path,
+        unit.summary,
+        "~~~diff",
+        detail,
+        "~~~",
+      ].join("\n")
+    })
+    .join("\n\n")
 
   const response = await generator.text(
     [

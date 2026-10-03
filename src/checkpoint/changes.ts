@@ -13,6 +13,7 @@ export interface UntrackedChangeUnit {
   kind: "untracked"
   path: string
   summary: string
+  preview?: string
 }
 
 function displayPath(section: string): string {
@@ -93,6 +94,7 @@ export function parseWorkingDiff(diff: string): ChangeUnit[] {
 export function appendUntrackedUnits(
   tracked: ChangeUnit[],
   untrackedPaths: readonly string[],
+  previews: ReadonlyMap<string, string> = new Map(),
 ): ChangeUnit[] {
   const units = [...tracked]
   let next = units.length + 1
@@ -104,6 +106,7 @@ export function appendUntrackedUnits(
       kind: "untracked",
       path: clean,
       summary: clean + " (untracked file)",
+      preview: previews.get(clean),
     })
   }
   return units
