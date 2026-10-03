@@ -28,6 +28,8 @@ export interface ScopeConfig {
 
 export interface CheckpointConfig {
   onIdle: boolean
+  idleDelaySeconds: number
+  minIntervalSeconds: number
   push: boolean
   remote: string
   maxCommits: number
@@ -73,6 +75,8 @@ export const DEFAULT_CONFIG: ScopeLaneConfig = {
   },
   checkpoint: {
     onIdle: true,
+    idleDelaySeconds: 90,
+    minIntervalSeconds: 180,
     push: true,
     remote: "origin",
     maxCommits: 4,
@@ -193,6 +197,18 @@ export function resolveConfig(options: unknown): ScopeLaneConfig {
     },
     checkpoint: {
       onIdle: readBoolean(rawCheckpoint, "onIdle", DEFAULT_CONFIG.checkpoint.onIdle),
+      idleDelaySeconds: Math.round(
+        readNumber(rawCheckpoint, "idleDelaySeconds", DEFAULT_CONFIG.checkpoint.idleDelaySeconds, {
+          min: 0,
+          max: 3600,
+        }),
+      ),
+      minIntervalSeconds: Math.round(
+        readNumber(rawCheckpoint, "minIntervalSeconds", DEFAULT_CONFIG.checkpoint.minIntervalSeconds, {
+          min: 0,
+          max: 86_400,
+        }),
+      ),
       push: readBoolean(rawCheckpoint, "push", DEFAULT_CONFIG.checkpoint.push),
       remote: readString(rawCheckpoint, "remote", DEFAULT_CONFIG.checkpoint.remote),
       maxCommits: Math.round(

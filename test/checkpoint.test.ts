@@ -73,16 +73,31 @@ describe("semantic commit planning", () => {
     ).toThrow("more than once")
   })
 
-  test("planner receives actual hunk content for semantic grouping", async () => {
+  test("planner receives actual hunk and lane context for semantic grouping", async () => {
     let received = ""
-    await planCheckpoint(units, DEFAULT_CONFIG.checkpoint, {
-      async text(prompt) {
-        received = prompt
-        return JSON.stringify({ commits: [], pending: units.map((unit) => unit.id) })
+    await planCheckpoint(
+      units,
+      DEFAULT_CONFIG.checkpoint,
+      {
+        async text(prompt) {
+          received = prompt
+          return JSON.stringify({ commits: [], pending: units.map((unit) => unit.id) })
+        },
       },
-    })
+      {
+        branch: "feat/F001-A-token-lifecycle",
+        baseBranch: "feat/F001-panel-auth",
+        featureId: "F001",
+        part: "A",
+        taskSummary: "Implement refresh token lifecycle",
+        recentCommits: ["abc123 feat(auth): add login"],
+      },
+    )
     expect(received).toContain("-old")
     expect(received).toContain("+new")
+    expect(received).toContain("feat/F001-A-token-lifecycle")
+    expect(received).toContain("Implement refresh token lifecycle")
+    expect(received).toContain("feat(auth): add login")
   })
 
   test("planner may deliberately create no commits", async () => {

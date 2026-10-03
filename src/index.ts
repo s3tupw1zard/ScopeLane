@@ -118,6 +118,7 @@ export default Plugin.define({
 
     const laneLocks = new Map<string, Promise<void>>()
     const checkpointing = new Set<string>()
+    const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
     const withLaneLock = async (sessionID: string, work: () => Promise<void>) => {
       const previous = laneLocks.get(sessionID) ?? Promise.resolve()
@@ -135,6 +136,12 @@ export default Plugin.define({
 
     const saveSessionState = async (state: SessionLaneState) => {
       await ctx.storage.set(sessionKey(state.sessionId), toJson(state))
+    }
+
+    const cancelIdleCheckpoint = (sessionID: string) => {
+      const timer = idleTimers.get(sessionID)
+      if (timer) clearTimeout(timer)
+      idleTimers.delete(sessionID)
     }
 
     const loadFeatureState = async (featureID: string) =>
@@ -215,6 +222,7 @@ export default Plugin.define({
       session: Awaited<ReturnType<typeof ctx.session.get>>,
       branch: string,
       repository: GitRepository,
+      prompt: string,
     ) => {
       const defaultBranch = await repository.defaultBranch()
       const parsed = parseFeatureBranch(branch, config.branches)
@@ -237,6 +245,7 @@ export default Plugin.define({
         featureId,
         part,
         branchNameLocked: false,
+        taskSummary: prompt.slice(0, 2_000),
       }
       await saveSessionState(state)
       return state
@@ -250,7 +259,7 @@ export default Plugin.define({
       const repository = new GitRepository(session.location.directory, config.branches)
       const currentBranch = await repository.currentBranch()
       if (currentBranch && !config.branches.protected.includes(currentBranch)) {
-        await adoptCurrentLane(session, currentBranch, repository)
+        await adoptCurrentLane(session, currentBranch, repository, prompt)
         return
       }
 
@@ -309,6 +318,7 @@ export default Plugin.define({
         featureId: plan.active.featureId,
         part: plan.active.part,
         branchNameLocked: false,
+        taskSummary: prompt.slice(0, 2_000),
       }
       await saveSessionState(state)
 
@@ -333,7 +343,11 @@ export default Plugin.define({
       })
     }
 
-    const checkpoint = async (sessionID: string, announce: boolean) => {
+    const checkpoint = async (
+      sessionID: string,
+      announce: boolean,
+      options: { force?: boolean } = {},
+    ) => {
       if (checkpointing.has(sessionID)) return "Checkpoint already running."
       checkpointing.add(sessionID)
       try {
@@ -346,11 +360,31 @@ export default Plugin.define({
         const snapshot = await repository.snapshot(config.checkpoint)
         if (snapshot.units.length === 0) return "Working tree is clean."
 
-        const plan = await planCheckpoint(snapshot.units, config.checkpoint, {
-          text: (prompt) => generatedText(session, prompt),
-        })
+        if (!options.force && state.lastPlannedFingerprint === snapshot.fingerprint) {
+          return "No commit created: " + (state.lastPlanReason || "unchanged work is still incomplete")
+        }
+
+        const recentCommits = await repository.recentCommitSubjects()
+        const plan = await planCheckpoint(
+          snapshot.units,
+          config.checkpoint,
+          {
+            text: (prompt) => generatedText(session, prompt),
+          },
+          {
+            branch: state.branch,
+            baseBranch: state.baseBranch,
+            featureId: state.featureId,
+            part: state.part,
+            taskSummary: state.taskSummary,
+            recentCommits,
+          },
+        )
         if (plan.commits.length === 0) {
-          return "No commit created: " + (plan.reason || "changes are still incomplete")
+          state.lastPlannedFingerprint = snapshot.fingerprint
+          state.lastPlanReason = plan.reason || "changes are still incomplete"
+          await saveSessionState(state)
+          return "No commit created: " + state.lastPlanReason
         }
 
         const result = await repository.executePlan(snapshot, plan, config.checkpoint)
@@ -361,6 +395,9 @@ export default Plugin.define({
         }
 
         state.lastCheckpointHead = result.head
+        state.lastCheckpointAt = Date.now()
+        state.lastPlannedFingerprint = undefined
+        state.lastPlanReason = undefined
         if (pushed && config.branches.lockNameAfterPush) state.branchNameLocked = true
         await saveSessionState(state)
 
@@ -399,6 +436,7 @@ export default Plugin.define({
     })
 
     await ctx.session.hook("prompt", async (event) => {
+      cancelIdleCheckpoint(event.sessionID)
       await withLaneLock(event.sessionID, () => ensureSessionLane(event.sessionID, event.prompt.text))
     })
 
@@ -429,7 +467,7 @@ export default Plugin.define({
           const state = await loadSessionState(sessionID)
 
           if (action === "checkpoint") {
-            const result = await checkpoint(sessionID, false)
+            const result = await checkpoint(sessionID, false, { force: true })
             await ctx.session.synthetic({ sessionID, text: result })
             return
           }
@@ -466,25 +504,52 @@ export default Plugin.define({
       })
     })
 
+    const scheduleIdleCheckpoint = async (sessionID: string) => {
+      cancelIdleCheckpoint(sessionID)
+      const state = await loadSessionState(sessionID)
+      if (!state) return
+
+      const now = Date.now()
+      const idleDelay = config.checkpoint.idleDelaySeconds * 1_000
+      const cooldown =
+        state.lastCheckpointAt === undefined
+          ? 0
+          : Math.max(
+              0,
+              config.checkpoint.minIntervalSeconds * 1_000 - (now - state.lastCheckpointAt),
+            )
+      const delay = Math.max(idleDelay, cooldown)
+
+      const timer = setTimeout(() => {
+        idleTimers.delete(sessionID)
+        void checkpoint(sessionID, true).catch(async (error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          await ctx.session.synthetic({
+            sessionID,
+            text: "ScopeLane checkpoint skipped: " + message,
+          }).catch(() => undefined)
+        })
+      }, delay)
+      idleTimers.set(sessionID, timer)
+    }
+
     const controller = new AbortController()
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           if (event.type !== "session.idle" || !config.checkpoint.onIdle) continue
           const sessionID = event.data.sessionID
-          void checkpoint(sessionID, true).catch(async (error) => {
-            const message = error instanceof Error ? error.message : String(error)
-            await ctx.session.synthetic({
-              sessionID,
-              text: "ScopeLane checkpoint skipped: " + message,
-            }).catch(() => undefined)
-          })
+          void scheduleIdleCheckpoint(sessionID).catch(console.error)
         }
       } catch (error) {
         if (!controller.signal.aborted) console.error("ScopeLane event loop failed", error)
       }
     })()
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      for (const timer of idleTimers.values()) clearTimeout(timer)
+      idleTimers.clear()
+    }
   },
 })

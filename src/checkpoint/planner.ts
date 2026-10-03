@@ -16,6 +16,15 @@ export interface CommitPlanGenerator {
   text(prompt: string): Promise<string>
 }
 
+export interface CommitPlanningContext {
+  branch?: string
+  baseBranch?: string
+  featureId?: string
+  part?: string
+  taskSummary?: string
+  recentCommits?: string[]
+}
+
 type RawPlan = {
   commits?: Array<{ message?: unknown; units?: unknown }>
   pending?: unknown
@@ -97,6 +106,7 @@ export async function planCheckpoint(
   units: readonly ChangeUnit[],
   config: CheckpointConfig,
   generator?: CommitPlanGenerator,
+  context: CommitPlanningContext = {},
 ): Promise<CommitPlan> {
   if (units.length === 0) return { commits: [], pending: [], reason: "No changes." }
   if (!generator) {
@@ -136,6 +146,17 @@ export async function planCheckpoint(
       "Never assign one unit to multiple commits. Preserve dependency order.",
       config.conventionalCommits ? "Commit subjects must use Conventional Commits." : "",
       "Maximum commits at this checkpoint: " + config.maxCommits + ".",
+      "",
+      "LANE CONTEXT:",
+      "Branch: " + (context.branch ?? "(unknown)"),
+      "Base: " + (context.baseBranch ?? "(unknown)"),
+      "Feature: " + (context.featureId ?? "(none)") + (context.part ? "-" + context.part : ""),
+      "Task: " + (context.taskSummary ?? "(not recorded)"),
+      "Recent commits:",
+      context.recentCommits?.length ? context.recentCommits.join("\n") : "(none)",
+      "",
+      "Use this context to keep commit boundaries consistent with the task and existing history.",
+      "Do not split merely because files differ; split only when the changes form independently meaningful units.",
       "",
       "Return JSON only:",
       JSON.stringify({ commits: [{ message: "feat(scope): concise subject", units: ["p1"] }], pending: ["p2"], reason: "short reason" }),

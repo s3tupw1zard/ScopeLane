@@ -22,5 +22,9 @@ export interface SessionLaneState {
   featureId?: string
   part?: string
   branchNameLocked: boolean
+  taskSummary?: string
   lastCheckpointHead?: string
+  lastCheckpointAt?: number
+  lastPlannedFingerprint?: string
+  lastPlanReason?: string
 }

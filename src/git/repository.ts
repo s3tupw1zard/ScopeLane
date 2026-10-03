@@ -69,6 +69,12 @@ export class GitRepository {
     return (await this.run(["rev-parse", "HEAD"])).trim()
   }
 
+  async recentCommitSubjects(limit = 6): Promise<string[]> {
+    const count = Math.max(1, Math.min(20, Math.round(limit)))
+    const output = await this.run(["log", "-" + count, "--pretty=%h %s"])
+    return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  }
+
   async defaultBranch(): Promise<string> {
     try {
       const remoteHead = (
