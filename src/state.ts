@@ -10,6 +10,7 @@ export interface FeaturePartState {
 export interface FeatureState {
   featureId: string
   parentBranch: string
+  baseBranch?: string
   mode: FeatureMode
   parts: FeaturePartState[]
 }

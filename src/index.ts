@@ -200,7 +200,8 @@ export default Plugin.define({
         await saveFeatureState({
           featureId: decision.featureId,
           parentBranch: plan.parent.branch,
-          mode: "split",
+          baseBranch: plan.parent.baseBranch,
+          mode: "integration-only",
           parts: [plan.active, ...plan.siblings].map((lane) => ({
             part: lane.part!,
             branch: lane.branch,
@@ -213,6 +214,7 @@ export default Plugin.define({
       await saveFeatureState({
         featureId: decision.featureId,
         parentBranch: plan.active.branch,
+        baseBranch: plan.active.baseBranch,
         mode: "single",
         parts: [],
       })
@@ -259,8 +261,27 @@ export default Plugin.define({
       const repository = new GitRepository(session.location.directory, config.branches)
       const currentBranch = await repository.currentBranch()
       if (currentBranch && !config.branches.protected.includes(currentBranch)) {
-        await adoptCurrentLane(session, currentBranch, repository, prompt)
-        return
+        const parsed = parseFeatureBranch(currentBranch, config.branches)
+        const feature =
+          parsed?.kind === "feature" ? await loadFeatureState(parsed.featureId) : undefined
+        const integrationOnly =
+          feature &&
+          feature.parentBranch === currentBranch &&
+          (feature.mode === "split" || feature.mode === "integration-only")
+
+        if (!integrationOnly) {
+          await adoptCurrentLane(session, currentBranch, repository, prompt)
+          return
+        }
+
+        if (await repository.isDirty()) {
+          throw new Error(
+            "ScopeLane: " +
+              currentBranch +
+              " is an integration-only feature parent with uncommitted changes. " +
+              "Move or clean those changes before starting implementation work.",
+          )
+        }
       }
 
       if (await repository.isDirty()) {
@@ -343,6 +364,37 @@ export default Plugin.define({
       })
     }
 
+    const ensureFeaturePullRequest = async (
+      state: SessionLaneState,
+      direction: "forward" | "sync",
+    ) => {
+      if (!state.featureId) {
+        throw new Error("ScopeLane: the current lane is not associated with a ScopeSeed feature")
+      }
+
+      const feature = await loadFeatureState(state.featureId)
+      if (!feature) throw new Error("ScopeLane: feature state is not available for " + state.featureId)
+
+      const repository = new GitRepository(state.worktree, config.branches)
+      const defaultBranch = feature.baseBranch ?? (await repository.defaultBranch())
+      const provider = new GitHubCliProvider(state.worktree, config.github)
+      const head = direction === "forward" ? feature.parentBranch : defaultBranch
+      const base = direction === "forward" ? defaultBranch : feature.parentBranch
+
+      return provider.ensure({
+        head,
+        base,
+        title:
+          direction === "forward"
+            ? "Merge " + feature.parentBranch + " into " + defaultBranch
+            : "Sync " + defaultBranch + " into " + feature.parentBranch,
+        body:
+          "Created by ScopeLane for feature " +
+          feature.featureId +
+          ". Integration remains an explicit GitHub pull request action.",
+      })
+    }
+
     const checkpoint = async (
       sessionID: string,
       announce: boolean,
@@ -357,6 +409,21 @@ export default Plugin.define({
         if (session.parentID) return "Subagent sessions use their parent lane."
 
         const repository = new GitRepository(state.worktree, config.branches)
+        if (state.featureId) {
+          const feature = await loadFeatureState(state.featureId)
+          if (
+            feature &&
+            feature.parentBranch === state.branch &&
+            (feature.mode === "split" || feature.mode === "integration-only")
+          ) {
+            return (
+              "No commit created: " +
+              feature.parentBranch +
+              " is integration-only; merge feature parts through pull requests."
+            )
+          }
+        }
+
         const snapshot = await repository.snapshot(config.checkpoint)
         if (snapshot.units.length === 0) return "Working tree is clean."
 
@@ -437,6 +504,35 @@ export default Plugin.define({
 
     await ctx.session.hook("prompt", async (event) => {
       cancelIdleCheckpoint(event.sessionID)
+
+      const existing = await loadSessionState(event.sessionID)
+      if (existing) {
+        const explicitFeature = event.prompt.text.match(/\bF\d{3,}\b/i)?.[0]?.toUpperCase()
+        const explicitPart = event.prompt.text.match(/\bF\d{3,}-([A-Z])\b/i)?.[1]?.toUpperCase()
+
+        if (explicitFeature && explicitFeature !== existing.featureId) {
+          throw new Error(
+            "ScopeLane: this session is already assigned to " +
+              existing.branch +
+              ". The new prompt explicitly targets " +
+              explicitFeature +
+              "; start a separate OpenCode session for that feature.",
+          )
+        }
+
+        if (explicitPart && existing.part && explicitPart !== existing.part) {
+          throw new Error(
+            "ScopeLane: this session is assigned to feature part " +
+              existing.featureId +
+              "-" +
+              existing.part +
+              ". Start a separate session for part " +
+              explicitPart +
+              ".",
+          )
+        }
+      }
+
       await withLaneLock(event.sessionID, () => ensureSessionLane(event.sessionID, event.prompt.text))
     })
 
@@ -460,7 +556,7 @@ export default Plugin.define({
     await ctx.command.transform((editor) => {
       editor.add({
         name: "scopelane",
-        description: "Show ScopeLane status, create a semantic checkpoint, or create/sync a pull request.",
+        description: "Show status, checkpoint work, or create lane/feature integration pull requests.",
         execute: async ({ sessionID, prompt }) => {
           const args = prompt.text.trim().replace(/^\/?scopelane(?:\s+|$)/i, "").trim()
           const action = args.split(/\s+/)[0]?.toLowerCase() || "status"
@@ -469,6 +565,22 @@ export default Plugin.define({
           if (action === "checkpoint") {
             const result = await checkpoint(sessionID, false, { force: true })
             await ctx.session.synthetic({ sessionID, text: result })
+            return
+          }
+
+          if (action === "feature-pr" || action === "feature-sync") {
+            if (!state) {
+              await ctx.session.synthetic({ sessionID, text: "ScopeLane: no lane is associated with this session." })
+              return
+            }
+            const result = await ensureFeaturePullRequest(
+              state,
+              action === "feature-pr" ? "forward" : "sync",
+            )
+            await ctx.session.synthetic({
+              sessionID,
+              text: "ScopeLane feature PR: " + result.url + (result.created ? " (created)" : " (already open)"),
+            })
             return
           }
 

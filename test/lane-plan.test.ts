@@ -62,3 +62,30 @@ describe("lane planning", () => {
     expect(plan.active.baseBranch).toBe("main")
   })
 })
+
+
+describe("integration parent invariants", () => {
+  test("split plans keep feature parts one level below the parent", () => {
+    const plan = planLanes(
+      {
+        kind: "feature",
+        featureId: "F042",
+        slug: "large-feature",
+        confidence: 1,
+        reason: "parallel work",
+        split: {
+          parts: [
+            { label: "A", slug: "backend", description: "Backend" },
+            { label: "B", slug: "frontend", description: "Frontend" },
+          ],
+        },
+      },
+      "main",
+      DEFAULT_CONFIG.branches,
+    )
+
+    expect(plan.parent?.branch).toBe("feat/F042-large-feature")
+    expect([plan.active, ...plan.siblings].every((lane) => lane.baseBranch === plan.parent?.branch)).toBe(true)
+    expect([plan.active, ...plan.siblings].every((lane) => /^feat\/F042-[A-Z]-/.test(lane.branch))).toBe(true)
+  })
+})
