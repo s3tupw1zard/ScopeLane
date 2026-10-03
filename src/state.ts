@@ -3,6 +3,8 @@ export type FeatureMode = "single" | "split" | "integration-only" | "ready-for-m
 export interface FeaturePartState {
   part: string
   branch: string
+  slug?: string
+  description?: string
 }
 
 export interface FeatureState {
@@ -15,8 +17,10 @@ export interface FeatureState {
 export interface SessionLaneState {
   sessionId: string
   branch: string
+  baseBranch: string
   worktree: string
   featureId?: string
   part?: string
   branchNameLocked: boolean
+  lastCheckpointHead?: string
 }

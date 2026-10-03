@@ -1,4 +1,4 @@
-import type { BranchConfig } from "../config"
+import type { BranchConfig, BranchKind } from "../config"
 
 export interface FeatureBranchInput {
   featureId: string
@@ -40,6 +40,16 @@ export function slugifyBranchSegment(value: string): string {
 
 export function isProtectedBranch(branch: string, config: BranchConfig): boolean {
   return config.protected.includes(branch)
+}
+
+export function renderSimpleBranch(
+  kind: BranchKind,
+  slugInput: string,
+  config: BranchConfig,
+): string {
+  const slug = slugifyBranchSegment(slugInput)
+  if (!slug) throw new Error("ScopeLane: branch slug cannot be empty")
+  return `${config.prefixes[kind]}/${slug}`
 }
 
 export function renderFeatureBranch(input: FeatureBranchInput, config: BranchConfig): string {
