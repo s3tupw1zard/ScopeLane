@@ -1,10 +1,8 @@
 # ScopeLane
 
-OpenCode V2 plugin for intelligent Git branching, worktree isolation, semantic commits, and safe automated pushes.
+ScopeLane is an OpenCode V2 plugin for safe parallel Git work: intelligent branch selection, isolated worktrees, semantic checkpoint commits, controlled pushes, and optional GitHub pull-request orchestration.
 
-ScopeLane is designed for parallel agent development without sacrificing a readable Git history. It gives each work stream its own branch/worktree lane, keeps coding agents away from direct Git mutations, and will create semantic checkpoint commits only when accumulated changes form coherent units.
-
-## Target branch model
+## Branch model
 
 ```text
 main
@@ -13,24 +11,127 @@ main
     └── feat/F001-B-auth-ui
 ```
 
-Feature parts are limited to one split level. If a part would need another split, the work should be classified as a separate feature instead.
+A feature may split exactly one level. Once it is split, the top-level feature branch becomes integration-only; implementation continues on its part branches. If a part itself would need another split, that work should become a separate ScopeSeed feature instead.
 
-## Current status
+## Install the current development branch
 
-Early implementation. The first slice provides:
+```bash
+opencode plugin add 'github:s3tupw1zard/ScopeLane#feat/bootstrap-scopelane'
+```
 
-- OpenCode V2 plugin bootstrap
-- configurable protected branches and branch prefixes
-- `F001` / `F001-A` feature branch naming and parsing
-- deterministic Git mutation guard for coding-agent shell access
-- persistent plugin configuration
-- foundation types for session lanes and feature state
-- safe plain-Git branch creation from parent refs
-- native OpenCode V2 worktree creation and reuse
-- race-safe lane resolution for concurrent sessions
-- session-move abstraction for stable `ctx.session.move()`
-- tests for branch naming, Git safety, and lane orchestration
+Or configure it explicitly with options:
 
-Next slices bind lane resolution to the live session lifecycle, add ScopeSeed integration, semantic checkpoint planning, hunk-level commit validation, batch pushes, and optional GitHub PR automation.
+```jsonc
+{
+  "plugins": [
+    {
+      "package": "github:s3tupw1zard/ScopeLane#feat/bootstrap-scopelane",
+      "options": {
+        "branches": {
+          "protected": ["main", "master", "trunk"],
+          "prefixes": {
+            "feature": "feat",
+            "fix": "fix",
+            "refactor": "refactor",
+            "docs": "docs",
+            "chore": "chore"
+          },
+          "featureIdPattern": "^F\\d{3,}$",
+          "featurePartPattern": "^[A-Z]$",
+          "lockNameAfterPush": true
+        },
+        "scope": {
+          "registryPath": "specs/FEATURES.md",
+          "projectPath": "specs/PROJECT.md",
+          "confidenceThreshold": 0.62,
+          "autoSplit": true,
+          "maxParts": 4,
+          "fallbackKind": "chore"
+        },
+        "checkpoint": {
+          "onIdle": true,
+          "idleDelaySeconds": 90,
+          "minIntervalSeconds": 180,
+          "push": true,
+          "remote": "origin",
+          "maxCommits": 4,
+          "maxDiffBytes": 200000,
+          "conventionalCommits": true
+        },
+        "github": {
+          "enabled": false,
+          "autoCreatePullRequest": false,
+          "cli": "gh"
+        }
+      }
+    }
+  ]
+}
+```
 
-See [docs/architecture.md](docs/architecture.md) for the current design.
+Do not configure Git as a hard OpenCode `deny` when using ScopeLane. ScopeLane's permission hook must receive `allow` or `ask` decisions so it can distinguish read-only Git inspection from mutations. A broad `git * -> ask` or `allow` rule is compatible; ScopeLane denies agent-owned mutations itself.
+
+## How it works
+
+On the first primary prompt of a session, ScopeLane resolves the work against ScopeSeed's durable `specs/FEATURES.md` and project context. It then creates or reuses a safe branch/worktree lane and moves the OpenCode session into it before normal implementation work proceeds.
+
+Coding agents can inspect Git state but do not own branch creation, staging, commits, pushes, worktrees, merges, or rebases. ScopeLane performs controlled Git mutations directly and refuses to commit or push protected branches.
+
+When a session becomes idle, ScopeLane does **not** immediately commit. It starts a configurable debounce window. A new prompt cancels that pending checkpoint. After the delay (and any commit cooldown), ScopeLane:
+
+1. snapshots tracked hunks and untracked files;
+2. asks the active model for a small semantic commit plan;
+3. validates every change-unit assignment deterministically;
+4. commits only complete logical units;
+5. leaves unfinished units in the working tree;
+6. pushes the resulting commit batch once.
+
+An unchanged diff that was already classified as incomplete is not repeatedly sent to the model.
+
+## ScopeSeed integration
+
+ScopeLane reads ScopeSeed's normal repository artifacts; ScopeSeed does not need a private programmatic API.
+
+- accepted feature IDs come from `specs/FEATURES.md`;
+- project context comes from `specs/PROJECT.md`;
+- the model may select only registered feature IDs;
+- a split uses `F001-A`, `F001-B`, and so on;
+- split depth is capped at one level.
+
+A feature can start as `feat/F001-name` and later be promoted to an integration parent with child part lanes when the work proves large enough.
+
+## Commands
+
+```text
+/scopelane
+/scopelane status
+/scopelane checkpoint
+/scopelane split [optional split guidance]
+/scopelane pr
+/scopelane sync
+/scopelane feature-pr
+/scopelane feature-sync
+```
+
+- `checkpoint`: immediately re-evaluate the working tree and commit complete semantic units.
+- `split`: checkpoint the current top-level feature, then promote it to an integration parent if a useful one-level split is identified.
+- `pr`: create/reuse a PR from the current lane into its base (for example `F001-A -> F001`).
+- `sync`: create/reuse a PR from the lane's base into the current lane (for example `F001 -> F001-A`).
+- `feature-pr`: create/reuse the feature-parent PR into the repository default branch (`F001 -> main`).
+- `feature-sync`: create/reuse the default-branch PR into the feature parent (`main -> F001`).
+
+ScopeLane never locally merges those relationships. GitHub integration uses the `gh` CLI and remains disabled by default.
+
+## Safety invariants
+
+- no ScopeLane commit or push targets a configured protected branch;
+- feature parts never split another level;
+- split feature parents are integration-only;
+- agent-issued Git mutations are denied even when wrapped through nested shell commands;
+- a checkpoint trigger is analysis, not an unconditional commit;
+- commit plans cannot duplicate, invent, or silently drop change units;
+- the working-tree fingerprint must remain unchanged between planning and execution;
+- concurrent sessions reuse/race-resolve worktrees rather than creating duplicate lanes;
+- explicit prompts targeting another feature/part are rejected in an already assigned session.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](docs/configuration.md).
