@@ -1,0 +1,22 @@
+export type FeatureMode = "single" | "split" | "integration-only" | "ready-for-main" | "merged"
+
+export interface FeaturePartState {
+  part: string
+  branch: string
+}
+
+export interface FeatureState {
+  featureId: string
+  parentBranch: string
+  mode: FeatureMode
+  parts: FeaturePartState[]
+}
+
+export interface SessionLaneState {
+  sessionId: string
+  branch: string
+  worktree: string
+  featureId?: string
+  part?: string
+  branchNameLocked: boolean
+}
