@@ -177,7 +177,7 @@ export function resolveConfig(options: unknown): ScopeLaneConfig {
       ),
     },
     scope: {
-      registryPath: readString(rawScope, "registryPath", DEFAULTCONFIG.scope.registryPath),
+      registryPath: readString(rawScope, "registryPath", DEFAULT_CONFIG.scope.registryPath),
       projectPath: readString(rawScope, "projectPath", DEFAULT_CONFIG.scope.projectPath),
       confidenceThreshold: readNumber(
         rawScope,
@@ -193,7 +193,7 @@ export function resolveConfig(options: unknown): ScopeLaneConfig {
     },
     checkpoint: {
       onIdle: readBoolean(rawCheckpoint, "onIdle", DEFAULT_CONFIG.checkpoint.onIdle),
-      push: readBoolean(rawCheckpoint, "push", DEFAULTCONFIG.checkpoint.push),
+      push: readBoolean(rawCheckpoint, "push", DEFAULT_CONFIG.checkpoint.push),
       remote: readString(rawCheckpoint, "remote", DEFAULT_CONFIG.checkpoint.remote),
       maxCommits: Math.round(
         readNumber(rawCheckpoint, "maxCommits", DEFAULT_CONFIG.checkpoint.maxCommits, {
