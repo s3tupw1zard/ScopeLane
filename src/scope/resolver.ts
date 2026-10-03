@@ -14,6 +14,7 @@ export interface ScopeDecision {
   confidence: number
   reason: string
   featureId?: string
+  activePart?: string
   split?: {
     parts: SplitPart[]
   }
@@ -29,6 +30,7 @@ type ModelDecision = {
   confidence?: unknown
   reason?: unknown
   featureId?: unknown
+  activePart?: unknown
   split?: {
     parts?: Array<{
       label?: unknown
@@ -162,10 +164,10 @@ ${prompt.slice(0, 12_000)}`)
     typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
       ? Math.min(1, Math.max(0, parsed.confidence))
       : 0
-  const requestedFeature =
-    typeof parsed.featureId === "string"
-      ? context.features.find((feature) => feature.id === parsed.featureId.toUpperCase())
-      : undefined
+  const parsedFeatureId = typeof parsed.featureId === "string" ? parsed.featureId.toUpperCase() : undefined
+  const requestedFeature = parsedFeatureId
+    ? context.features.find((feature) => feature.id === parsedFeatureId)
+    : undefined
   const feature = explicit ?? requestedFeature
   const slugSource =
     typeof parsed.slug === "string" && parsed.slug.trim()
