@@ -9,9 +9,9 @@ export interface SessionMover {
 }
 
 /**
- * ScopeLane deliberately depends on this small interface instead of the current
- * experimental OpenCode control-plane API. The concrete adapter can be replaced
- * when session movement becomes a stable plugin-context operation.
+ * ScopeLane keeps session movement behind a small interface even though OpenCode
+ * V2 exposes ctx.session.move(). This keeps lane orchestration independently
+ * testable and isolates OpenCode API binding from the plain-Git core.
  */
 export async function moveSessionToLane(
   mover: SessionMover,
