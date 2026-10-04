@@ -2,6 +2,8 @@
 
 ScopeLane is an OpenCode V2 plugin for safe parallel Git work: intelligent branch selection, isolated worktrees, semantic checkpoint commits, controlled pushes, and optional GitHub pull-request orchestration.
 
+> **Status:** public development prerelease. ScopeLane is still WIP and has not yet had broad real-world validation. Use the `dev` npm dist-tag until a stable release is explicitly published.
+
 ## Branch model
 
 ```text
@@ -13,7 +15,15 @@ main
 
 A feature may split exactly one level. Once it is split, the top-level feature branch becomes integration-only; implementation continues on its part branches. If a part itself would need another split, that work should become a separate ScopeSeed feature instead.
 
-## Install the current development branch
+## Install the current prerelease
+
+The recommended prerelease installation is the npm package:
+
+```bash
+opencode plugin add opencode-scopelane@dev
+```
+
+For repository-based development, the current implementation branch remains available:
 
 ```bash
 opencode plugin add 'github:s3tupw1zard/ScopeLane#feat/bootstrap-scopelane'
@@ -25,7 +35,7 @@ Or configure it explicitly with options:
 {
   "plugins": [
     {
-      "package": "github:s3tupw1zard/ScopeLane#feat/bootstrap-scopelane",
+      "package": "opencode-scopelane@dev",
       "options": {
         "branches": {
           "protected": ["main", "master", "trunk"],
@@ -135,3 +145,21 @@ ScopeLane never locally merges those relationships. GitHub integration uses the 
 - explicit prompts targeting another feature/part are rejected in an already assigned session.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/configuration.md](docs/configuration.md).
+
+
+## npm releases
+
+ScopeLane uses CalVer-compatible SemVer prereleases such as `2026.1.0-dev.1`. Development releases publish to the npm `dev` dist-tag; stable releases publish to `latest`.
+
+Before publishing or creating a release, run:
+
+```bash
+bun install
+bun run verify
+```
+
+Publishing automation and first-release setup are documented in [docs/publishing.md](docs/publishing.md).
+
+## License
+
+ScopeLane is licensed under the **GNU General Public License v2.0 only (`GPL-2.0-only`)**. See [LICENSE](LICENSE).

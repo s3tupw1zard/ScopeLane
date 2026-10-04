@@ -1,7 +1,6 @@
 {
   "name": "opencode-scopelane",
   "version": "2026.1.0-dev.1",
-  "private": true,
   "description": "OpenCode V2 plugin for intelligent Git branching, worktree isolation, semantic commits, and safe automated pushes.",
   "type": "module",
   "exports": {
@@ -9,7 +8,9 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pack:check": "npm pack --dry-run",
+    "verify": "bun run typecheck && bun test && npm run pack:check"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.4"
@@ -33,5 +34,16 @@
     "semantic-commits",
     "scopeseed",
     "automation"
-  ]
+  ],
+  "main": "./src/index.ts",
+  "license": "GPL-2.0-only",
+  "files": [
+    "src/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
