@@ -1,4 +1,3 @@
-import { Plugin } from "@opencode/plugin"
 import { resolveConfig } from "./config"
 import { planCheckpoint } from "./checkpoint/planner"
 import { findFeatureId, findFeaturePart, parseFeatureBranch } from "./git/branch"
@@ -109,7 +108,9 @@ function planFromExistingFeature(
   return { active, parent, siblings: parts.filter((part) => part.branch !== active.branch) }
 }
 
-export default Plugin.define({
+type ScopeLanePlugin = Parameters<typeof import("@opencode/plugin").Plugin.define>[0]
+
+const plugin: ScopeLanePlugin = {
   id: "scopelane",
 
   async setup(ctx) {
@@ -863,4 +864,6 @@ export default Plugin.define({
       idleTimers.clear()
     }
   },
-})
+}
+
+export default plugin
