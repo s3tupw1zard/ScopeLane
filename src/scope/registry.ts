@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import type { ScopeConfig } from "../config"
+import type { BranchConfig, ScopeConfig } from "../config"
 
 export interface FeatureRecord {
   id: string
@@ -12,6 +12,7 @@ export interface FeatureRecord {
 }
 
 export interface ScopeSeedContext {
+  enabled: boolean
   project?: string
   features: FeatureRecord[]
 }
@@ -48,10 +49,23 @@ function columnIndex(headers: string[], name: string): number {
   return headers.findIndex((header) => header.trim().toLowerCase() === name.toLowerCase())
 }
 
-export function parseFeatureRegistry(markdown: string): FeatureRecord[] {
+function stripAnchors(pattern: string): string {
+  return pattern.replace(/^\^/, "").replace(/\$$/, "")
+}
+
+function matchingIds(text: string, pattern: string): string[] {
+  const matches = text.match(new RegExp(stripAnchors(pattern), "g")) ?? []
+  return [...new Set(matches)]
+}
+
+export function parseFeatureRegistry(
+  markdown: string,
+  featureIdPattern = "^F\\d{3,}$",
+): FeatureRecord[] {
   const lines = markdown.split(/\r?\n/)
   let headers: string[] | undefined
   const features: FeatureRecord[] = []
+  const featureIdRegex = new RegExp(featureIdPattern)
 
   for (const line of lines) {
     if (!line.trim().startsWith("|")) continue
@@ -70,7 +84,7 @@ export function parseFeatureRegistry(markdown: string): FeatureRecord[] {
     if (idIndex < 0 || nameIndex < 0) continue
 
     const id = cells[idIndex]?.trim() ?? ""
-    if (!/^F\d{3,}$/.test(id)) continue
+    if (!featureIdRegex.test(id)) continue
 
     const shortIndex = columnIndex(headers, "Short description")
     const descriptionIndex = columnIndex(headers, "Description")
@@ -83,7 +97,7 @@ export function parseFeatureRegistry(markdown: string): FeatureRecord[] {
       name: cells[nameIndex]?.trim() || id,
       shortDescription: shortIndex >= 0 ? cells[shortIndex]?.trim() ?? "" : "",
       description: descriptionIndex >= 0 ? cells[descriptionIndex]?.trim() ?? "" : "",
-      dependsOn: dependencyText.match(/F\d{3,}/g) ?? [],
+      dependsOn: matchingIds(dependencyText, featureIdPattern),
       spec: specIndex >= 0 ? cells[specIndex]?.replaceAll("`", "").trim() || undefined : undefined,
     })
   }
@@ -104,12 +118,14 @@ async function readOptional(path: string): Promise<string | undefined> {
 export async function loadScopeSeedContext(
   directory: string,
   config: ScopeConfig,
+  branches: BranchConfig,
 ): Promise<ScopeSeedContext> {
   const registry = await readOptional(resolve(directory, config.registryPath))
   const project = await readOptional(resolve(directory, config.projectPath))
 
   return {
+    enabled: registry !== undefined,
     project,
-    features: registry ? parseFeatureRegistry(registry) : [],
+    features: registry ? parseFeatureRegistry(registry, branches.featureIdPattern) : [],
   }
 }
