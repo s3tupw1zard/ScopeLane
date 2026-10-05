@@ -10,6 +10,7 @@ import { GitHubCliProvider } from "./provider/github"
 import { loadScopeSeedContext } from "./scope/registry"
 import { resolveScope, type ScopeDecision } from "./scope/resolver"
 import type { FeatureState, SessionLaneState } from "./state"
+import type { OpenCodeSession, ScopeLanePlugin } from "./opencode-types"
 
 function toJson<T>(value: T) {
   return JSON.parse(JSON.stringify(value))
@@ -108,8 +109,6 @@ function planFromExistingFeature(
   return { active, parent, siblings: parts.filter((part) => part.branch !== active.branch) }
 }
 
-type ScopeLanePlugin = Parameters<typeof import("@opencode/plugin").Plugin.define>[0]
-
 const plugin: ScopeLanePlugin = {
   id: "scopelane",
 
@@ -153,7 +152,7 @@ const plugin: ScopeLanePlugin = {
       await ctx.storage.set(featureKey(state.featureId), toJson(state))
     }
 
-    const generatedText = async (session: Awaited<ReturnType<typeof ctx.session.get>>, prompt: string) => {
+    const generatedText = async (session: OpenCodeSession, prompt: string) => {
       if (session.model) {
         const output = await ctx.generate.text({ model: session.model, prompt })
         if (typeof output === "string") return output
@@ -165,7 +164,7 @@ const plugin: ScopeLanePlugin = {
     }
 
     const resolveExistingPart = async (
-      session: Awaited<ReturnType<typeof ctx.session.get>>,
+      session: OpenCodeSession,
       prompt: string,
       feature: FeatureState,
     ) => {
@@ -215,7 +214,7 @@ const plugin: ScopeLanePlugin = {
     }
 
     const resolveLanePlan = async (
-      session: Awaited<ReturnType<typeof ctx.session.get>>,
+      session: OpenCodeSession,
       prompt: string,
       repository: GitRepository,
     ) => {
@@ -282,7 +281,7 @@ const plugin: ScopeLanePlugin = {
     }
 
     const adoptCurrentLane = async (
-      session: Awaited<ReturnType<typeof ctx.session.get>>,
+      session: OpenCodeSession,
       branch: string,
       repository: GitRepository,
       prompt: string,
