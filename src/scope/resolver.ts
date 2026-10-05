@@ -51,12 +51,20 @@ function extractJson(text: string): unknown {
 
 function featureSummary(feature: FeatureRecord): string {
   const details = [feature.shortDescription, feature.description].filter(Boolean).join(" — ")
-  return `${feature.id}: ${feature.name}${details ? ` — ${details}` : ""}`
+  return feature.id + ": " + feature.name + (details ? " — " + details : "")
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&")
 }
 
 function explicitFeature(prompt: string, features: FeatureRecord[]): FeatureRecord | undefined {
-  const requested = prompt.match(/\bF\d{3,}\b/i)?.[0]?.toUpperCase()
-  return requested ? features.find((feature) => feature.id === requested) : undefined
+  return features.find((feature) =>
+    new RegExp(
+      "(?:^|[^A-Za-z0-9])" + escapeRegExp(feature.id) + "(?=$|[^A-Za-z0-9])",
+      "i",
+    ).test(prompt),
+  )
 }
 
 function validKind(value: unknown): BranchKind | undefined {
@@ -129,34 +137,41 @@ export async function resolveScope(
   }
 
   const features = context.features.map(featureSummary).join("\n")
-  const response = await generator.text(`You are ScopeLane's scope classifier.
-
-Classify the user's coding task into a safe Git lane. ScopeSeed's accepted feature registry is authoritative when present. Do not invent a feature ID. If the task belongs to an accepted feature, use that exact ID. If it does not, choose fix, refactor, docs, or chore unless this is clearly a feature without a registered ScopeSeed ID.
-
-A registered feature may be split only when it is still one coherent product feature but contains multiple independently implementable parallel workstreams. A split is limited to one level. Recommend 2-${config.maxParts} parts only when the split is genuinely useful; otherwise omit split.
-
-Return JSON only:
-{
-  "kind": "feature|fix|refactor|docs|chore",
-  "featureId": "F001 or omitted",
-  "slug": "short-kebab-name",
-  "confidence": 0.0,
-  "reason": "short explanation",
-  "split": {
-    "parts": [
-      {"label":"A","slug":"short-name","description":"precise scope"}
-    ]
-  }
-}
-
-PROJECT CONTEXT:
-${context.project?.slice(0, 12_000) || "(no ScopeSeed PROJECT.md)"}
-
-ACCEPTED FEATURES:
-${features || "(no ScopeSeed FEATURES.md entries)"}
-
-USER TASK:
-${prompt.slice(0, 12_000)}`)
+  const response = await generator.text(
+    [
+      "You are ScopeLane's scope classifier.",
+      "",
+      "Classify the user's coding task into a safe Git lane. ScopeSeed feature IDs are authoritative only when a ScopeSeed registry is present. Never invent an ID. If ScopeSeed is not in use, feature work must use a normal feature lane without an ID prefix.",
+      "",
+      "A registered feature may be split only when it is still one coherent product feature but contains multiple independently implementable parallel workstreams. A split is limited to one level. Recommend 2-" + config.maxParts + " parts only when the split is genuinely useful; otherwise omit split.",
+      "",
+      "Return JSON only:",
+      "{",
+      '  "kind": "feature|fix|refactor|docs|chore",',
+      '  "featureId": "exact registered ID or omitted",',
+      '  "slug": "short-kebab-name",',
+      '  "confidence": 0.0,',
+      '  "reason": "short explanation",',
+      '  "split": {',
+      '    "parts": [',
+      '      {"label":"A","slug":"short-name","description":"precise scope"}',
+      "    ]",
+      "  }",
+      "}",
+      "",
+      "SCOPESEED:",
+      context.enabled ? "enabled" : "not in use",
+      "",
+      "PROJECT CONTEXT:",
+      context.project?.slice(0, 12_000) || "(no ScopeSeed PROJECT.md)",
+      "",
+      "ACCEPTED FEATURES:",
+      features || "(no accepted ScopeSeed feature entries)",
+      "",
+      "USER TASK:",
+      prompt.slice(0, 12_000),
+    ].join("\n"),
+  )
 
   const parsed = extractJson(response) as ModelDecision
   const kind = validKind(parsed.kind) ?? config.fallbackKind
@@ -164,9 +179,9 @@ ${prompt.slice(0, 12_000)}`)
     typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
       ? Math.min(1, Math.max(0, parsed.confidence))
       : 0
-  const parsedFeatureId = typeof parsed.featureId === "string" ? parsed.featureId.toUpperCase() : undefined
+  const parsedFeatureId = typeof parsed.featureId === "string" ? parsed.featureId : undefined
   const requestedFeature = parsedFeatureId
-    ? context.features.find((feature) => feature.id === parsedFeatureId)
+    ? context.features.find((feature) => feature.id.toLowerCase() === parsedFeatureId.toLowerCase())
     : undefined
   const feature = explicit ?? requestedFeature
   const slugSource =
@@ -212,7 +227,9 @@ ${prompt.slice(0, 12_000)}`)
       kind,
       slug,
       confidence,
-      reason: `${reason} No accepted ScopeSeed feature ID matched, so this remains an unscoped feature lane.`,
+      reason: context.enabled
+        ? reason + " No accepted ScopeSeed feature ID matched, so this remains an unscoped feature lane."
+        : reason + " ScopeSeed is not in use, so no feature ID prefix is added.",
     }
   }
 
