@@ -1,6 +1,6 @@
 {
   "name": "opencode-scopelane",
-  "version": "2026.1.0-dev.2",
+  "version": "2026.1.0-dev.3",
   "description": "OpenCode V2 plugin for intelligent Git branching, worktree isolation, semantic commits, and safe automated pushes.",
   "type": "module",
   "exports": {
