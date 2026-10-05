@@ -1,6 +1,8 @@
 # Configuration
 
-ScopeLane options are supplied through the OpenCode plugin object.
+ScopeLane options are supplied through the OpenCode plugin object. For repository-local settings, put the plugin configuration in `.opencode/opencode.jsonc`. ScopeLane does not require a separate configuration file.
+
+If ScopeSeed is not present in the repository, feature lanes do not receive IDs such as `F001` or `C001`; they use names such as `feat/companion-authentication`. See [Feature ID prefixes](feature-id-prefixes.md) for custom ScopeSeed ID formats.
 
 ## Branches
 
@@ -23,6 +25,34 @@ ScopeLane options are supplied through the OpenCode plugin object.
 ```
 
 With the defaults, accepted ScopeSeed feature `F001` becomes `feat/F001-<slug>`. A split becomes `feat/F001-A-<slug>`, `feat/F001-B-<slug>`, and so on.
+
+`featureIdPattern` applies only to ScopeSeed-backed features. For example, a Companion repository can set it to `^C\\d{3,}# Configuration
+
+ScopeLane options are supplied through the OpenCode plugin object. For repository-local settings, put the plugin configuration in `.opencode/opencode.jsonc`. ScopeLane does not require a separate configuration file.
+
+If ScopeSeed is not present in the repository, feature lanes do not receive IDs such as `F001` or `C001`; they use names such as `feat/companion-authentication`. See [Feature ID prefixes](feature-id-prefixes.md) for custom ScopeSeed ID formats.
+
+## Branches
+
+```jsonc
+{
+  "branches": {
+    "protected": ["main", "master", "trunk"],
+    "prefixes": {
+      "feature": "feat",
+      "fix": "fix",
+      "refactor": "refactor",
+      "docs": "docs",
+      "chore": "chore"
+    },
+    "featureIdPattern": "^F\\d{3,}$",
+    "featurePartPattern": "^[A-Z]$",
+    "lockNameAfterPush": true
+  }
+}
+```
+
+ so accepted features are `C001`, `C002`, and so on. When ScopeSeed is not in use, ScopeLane deliberately omits the feature ID regardless of this setting.
 
 `maxPartDepth` is intentionally fixed to one and is not configurable.
 
