@@ -23,6 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXTRA_ALLOWED_ACTORS: ${{ vars.PR_PACKAGE_ALLOWED_ACTORS }}
+          EXTRA_ALLOWED_PRS: ${{ vars.PR_PACKAGE_ALLOWED_PRS }}
         run: |
           set -euo pipefail
 
@@ -34,7 +35,10 @@ jobs:
             exit 0
           fi
 
-          author="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" --jq '.user.login')"
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number")"
+          author="$(jq -r '.user.login' <<<"$pr_json")"
+          approved_label="$(jq -r '[.labels[].name] | index("pr-package-approved") != null' <<<"$pr_json")"
+
           allowed=false
           for candidate in s3tupw1zard ${EXTRA_ALLOWED_ACTORS//,/ }; do
             [[ -n "$candidate" ]] || continue
@@ -43,6 +47,20 @@ jobs:
               break
             fi
           done
+
+          if [[ "$allowed" != "true" ]]; then
+            for candidate in ${EXTRA_ALLOWED_PRS//,/ }; do
+              [[ -n "$candidate" ]] || continue
+              if [[ "$candidate" == "$pr_number" ]]; then
+                allowed=true
+                break
+              fi
+            done
+          fi
+
+          if [[ "$allowed" != "true" && "$approved_label" == "true" ]]; then
+            allowed=true
+          fi
 
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
