@@ -64,7 +64,7 @@ export function findFeaturePart(
       "i",
     ),
   )
-  return match?.[1]
+  return match?.[1]?.toUpperCase()
 }
 
 export function renderSimpleBranch(
