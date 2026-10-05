@@ -16,8 +16,8 @@ When F001 is split, `feat/F001-panel-auth` changes role from a work branch to an
 ## Lane lifecycle
 
 1. A primary session prompt enters the prompt-admission hook.
-2. ScopeLane reads ScopeSeed's durable feature registry and project context.
-3. A deterministic/model-assisted scope resolver chooses a registered feature or a non-feature branch kind.
+2. ScopeLane checks for the configured ScopeSeed registry. If present, it reads the durable feature registry and project context; if absent, the repository is treated as standalone.
+3. A deterministic/model-assisted scope resolver chooses a registered feature or a normal branch kind. Standalone feature work carries no ScopeSeed feature ID.
 4. The lane planner renders the configured branch name and optional one-level part graph.
 5. Plain Git creates missing refs from their declared bases.
 6. OpenCode's native V2 worktree API creates/reuses the checkout.
@@ -62,6 +62,8 @@ ScopeLane does not perform local merges for these relationships.
 ## Safety model
 
 Protected branches default to `main`, `master`, and `trunk`. ScopeLane refuses direct checkpoint commits, pushes, or work lanes on protected branches.
+
+A clean protected checkout can be used as the source for a new ScopeLane work lane. A dirty protected checkout instead enters protected read-only mode: session setup succeeds, OpenCode reads/searches remain available, standalone read-only Git inspection remains available, and edits or shell mutations are denied until the user switches to a work branch.
 
 Coding-agent shell Git mutations are rejected through the OpenCode permission hook. The plain-Git core executes only ScopeLane's validated operations.
 

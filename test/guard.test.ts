@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isGitMutationCommand } from "../src/git/guard"
+import { isGitMutationCommand, isReadOnlyGitInspectionCommand } from "../src/git/guard"
 
 describe("Git mutation guard", () => {
   test("allows read-only Git inspection", () => {
@@ -25,4 +25,14 @@ describe("Git mutation guard", () => {
     expect(isGitMutationCommand("sh -c 'git commit -m change'")).toBe(true)
     expect(isGitMutationCommand('bash -lc "git status --short"')).toBe(false)
   })
+
+  test("allows only standalone read-only Git commands in protected read-only mode", () => {
+    expect(isReadOnlyGitInspectionCommand("git status --short")).toBe(true)
+    expect(isReadOnlyGitInspectionCommand("git diff --stat")).toBe(true)
+    expect(isReadOnlyGitInspectionCommand("git log -5 --oneline")).toBe(true)
+    expect(isReadOnlyGitInspectionCommand("git commit -m change")).toBe(false)
+    expect(isReadOnlyGitInspectionCommand("git status && rm -rf build")).toBe(false)
+    expect(isReadOnlyGitInspectionCommand("rg authentication src")).toBe(false)
+  })
+
 })

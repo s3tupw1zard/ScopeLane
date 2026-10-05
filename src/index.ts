@@ -1,9 +1,9 @@
 import { Plugin } from "@opencode/plugin"
 import { resolveConfig } from "./config"
 import { planCheckpoint } from "./checkpoint/planner"
-import { parseFeatureBranch } from "./git/branch"
+import { findFeatureId, findFeaturePart, parseFeatureBranch } from "./git/branch"
 import { GitClient } from "./git/client"
-import { isGitMutationCommand } from "./git/guard"
+import { isGitMutationCommand, isReadOnlyGitInspectionCommand } from "./git/guard"
 import { GitRepository } from "./git/repository"
 import { ensureLane } from "./lane/orchestrator"
 import { planLanes, type LanePlan, type PlannedLane } from "./lane/plan"
@@ -119,6 +119,7 @@ export default Plugin.define({
     const laneLocks = new Map<string, Promise<void>>()
     const checkpointing = new Set<string>()
     const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const protectedReadOnly = new Map<string, { branch: string; directory: string }>()
 
     const withLaneLock = async (sessionID: string, work: () => Promise<void>) => {
       const previous = laneLocks.get(sessionID) ?? Promise.resolve()
@@ -218,7 +219,7 @@ export default Plugin.define({
       repository: GitRepository,
     ) => {
       const defaultBranch = await repository.defaultBranch()
-      const scopeContext = await loadScopeSeedContext(session.location.directory, config.scope)
+      const scopeContext = await loadScopeSeedContext(session.location.directory, config.scope, config.branches)
       const decision = await resolveScope(prompt, scopeContext, config.scope, {
         text: (input) => generatedText(session, input),
       })
@@ -317,11 +318,25 @@ export default Plugin.define({
       const session = await ctx.session.get({ sessionID })
       if (session.parentID) return
 
+      protectedReadOnly.delete(sessionID)
+
       const repository = new GitRepository(session.location.directory, config.branches)
       const currentBranch = await repository.currentBranch()
       let preResolved:
         | Awaited<ReturnType<typeof resolveLanePlan>>
         | undefined
+
+      if (
+        currentBranch &&
+        config.branches.protected.includes(currentBranch) &&
+        (await repository.isDirty())
+      ) {
+        protectedReadOnly.set(sessionID, {
+          branch: currentBranch,
+          directory: session.location.directory,
+        })
+        return
+      }
 
       if (currentBranch && !config.branches.protected.includes(currentBranch)) {
         const parsed = parseFeatureBranch(currentBranch, config.branches)
@@ -571,6 +586,27 @@ export default Plugin.define({
     }
 
     await ctx.permission.hook("evaluate", (event) => {
+      const readOnly = protectedReadOnly.get(event.sessionID)
+
+      if (readOnly && event.action === "edit") {
+        event.effect = "deny"
+        event.message =
+          'ScopeLane protected read-only mode: "' +
+          readOnly.branch +
+          '" has uncommitted changes. File edits are blocked until you create or switch to a work branch.'
+        return
+      }
+
+      if (readOnly && event.action === "shell") {
+        if (event.resources.every(isReadOnlyGitInspectionCommand)) return
+        event.effect = "deny"
+        event.message =
+          'ScopeLane protected read-only mode: only read-only Git inspection is allowed on "' +
+          readOnly.branch +
+          '". Create or switch to a work branch before running shell mutations.'
+        return
+      }
+
       if (event.action !== "shell") return
       if (!event.resources.some(isGitMutationCommand)) return
       event.effect = "deny"
@@ -583,10 +619,16 @@ export default Plugin.define({
 
       const existing = await loadSessionState(event.sessionID)
       if (existing) {
-        const explicitFeature = event.prompt.text.match(/\bF\d{3,}\b/i)?.[0]?.toUpperCase()
-        const explicitPart = event.prompt.text.match(/\bF\d{3,}-([A-Z])\b/i)?.[1]?.toUpperCase()
+        const explicitFeature = findFeatureId(event.prompt.text, config.branches)
+        const explicitPart = existing.featureId
+          ? findFeaturePart(event.prompt.text, existing.featureId, config.branches)
+          : undefined
 
-        if (explicitFeature && explicitFeature !== existing.featureId) {
+        if (
+          explicitFeature &&
+          existing.featureId &&
+          explicitFeature.toLowerCase() !== existing.featureId.toLowerCase()
+        ) {
           throw new Error(
             "ScopeLane: this session is already assigned to " +
               existing.branch +
@@ -613,6 +655,18 @@ export default Plugin.define({
     })
 
     await ctx.session.hook("context", async (event) => {
+      const readOnly = protectedReadOnly.get(event.sessionID)
+      if (readOnly) {
+        event.system.push({
+          type: "text",
+          text:
+            'ScopeLane: the current branch "' +
+            readOnly.branch +
+            '" is protected and has uncommitted changes. This session is in protected read-only mode. You may read/search files and inspect Git state/diffs, and you may propose branch names or commit messages. Do not edit files or run mutations. Ask the user to create or switch to a work branch before implementation.',
+        })
+        return
+      }
+
       const state = await loadSessionState(event.sessionID)
       if (!state) return
       const scope = state.featureId
@@ -735,7 +789,15 @@ export default Plugin.define({
           }
 
           if (!state) {
-            await ctx.session.synthetic({ sessionID, text: "ScopeLane: no lane is associated with this session yet." })
+            const readOnly = protectedReadOnly.get(sessionID)
+            await ctx.session.synthetic({
+              sessionID,
+              text: readOnly
+                ? 'ScopeLane protected read-only: ' +
+                  readOnly.branch +
+                  " has uncommitted changes. Read/search and read-only Git inspection are available; create or switch to a work branch before mutations."
+                : "ScopeLane: no lane is associated with this session yet.",
+            })
             return
           }
           await ctx.session.synthetic({

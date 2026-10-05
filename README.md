@@ -13,7 +13,7 @@ main
     └── feat/F001-B-auth-ui
 ```
 
-A feature may split exactly one level. Once it is split, the top-level feature branch becomes integration-only; implementation continues on its part branches. If a part itself would need another split, that work should become a separate ScopeSeed feature instead.
+A ScopeSeed-backed feature may split exactly one level. Once it is split, the top-level feature branch becomes integration-only; implementation continues on its part branches. If a part itself would need another split, that work should become a separate ScopeSeed feature instead. Standalone repositories use normal branches such as `feat/companion-authentication` without an `F001`/`C001`-style ID.
 
 ## Install the current prerelease
 
@@ -83,9 +83,9 @@ Do not configure Git as a hard OpenCode `deny` when using ScopeLane. ScopeLane's
 
 ## How it works
 
-On the first primary prompt of a session, ScopeLane resolves the work against ScopeSeed's durable `specs/FEATURES.md` and project context. It then creates or reuses a safe branch/worktree lane and moves the OpenCode session into it before normal implementation work proceeds.
+On the first primary prompt of a session, ScopeLane checks whether the configured ScopeSeed registry exists. With ScopeSeed, it resolves against the accepted feature registry and project context; without ScopeSeed, it falls back to an ordinary `feat/<slug>`/`fix/<slug>` style lane without inventing a feature ID. It then creates or reuses a safe branch/worktree lane and moves the OpenCode session into it before normal implementation work proceeds.
 
-Coding agents can inspect Git state but do not own branch creation, staging, commits, pushes, worktrees, merges, or rebases. ScopeLane performs controlled Git mutations directly and refuses to commit or push protected branches.
+Coding agents can inspect Git state but do not own branch creation, staging, commits, pushes, worktrees, merges, or rebases. ScopeLane performs controlled Git mutations directly and refuses to commit or push protected branches. If a protected checkout already has uncommitted changes, ScopeLane keeps the session usable in protected read-only mode instead of failing setup; the agent can inspect files/diffs and propose a branch or commit plan while edits and shell mutations remain blocked.
 
 When a session becomes idle, ScopeLane does **not** immediately commit. It starts a configurable debounce window. A new prompt cancels that pending checkpoint. After the delay (and any commit cooldown), ScopeLane:
 
@@ -105,8 +105,11 @@ ScopeLane reads ScopeSeed's normal repository artifacts; ScopeSeed does not need
 - accepted feature IDs come from `specs/FEATURES.md`;
 - project context comes from `specs/PROJECT.md`;
 - the model may select only registered feature IDs;
-- a split uses `F001-A`, `F001-B`, and so on;
+- the feature ID format is configurable (`F001`, `C001`, `APP-0001`, ...);
+- a split appends one configured part label such as `C001-A`;
 - split depth is capped at one level.
+
+If the registry is absent, ScopeSeed is treated as not in use and ScopeLane does not add any feature ID. Repository-specific ID formats are configured in `.opencode/opencode.jsonc`; see [docs/feature-id-prefixes.md](docs/feature-id-prefixes.md).
 
 A feature can start as `feat/F001-name` and later be promoted to an integration parent with child part lanes when the work proves large enough.
 
@@ -135,6 +138,7 @@ ScopeLane never locally merges those relationships. GitHub integration uses the 
 ## Safety invariants
 
 - no ScopeLane commit or push targets a configured protected branch;
+- a dirty protected checkout remains available for read/search/diff analysis instead of failing session setup;
 - feature parts never split another level;
 - split feature parents are integration-only;
 - agent-issued Git mutations are denied even when wrapped through nested shell commands;

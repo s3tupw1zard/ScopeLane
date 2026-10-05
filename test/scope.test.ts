@@ -23,7 +23,7 @@ describe("scope resolver", () => {
   test("uses an explicitly named registered feature without a model", async () => {
     const decision = await resolveScope(
       "Implement F001 now",
-      { features: parseFeatureRegistry(registry) },
+      { enabled: true, features: parseFeatureRegistry(registry) },
       DEFAULT_CONFIG.scope,
     )
 
@@ -35,7 +35,7 @@ describe("scope resolver", () => {
   test("accepts a one-level split for a registered feature", async () => {
     const decision = await resolveScope(
       "Implement panel authentication",
-      { features: parseFeatureRegistry(registry) },
+      { enabled: true, features: parseFeatureRegistry(registry) },
       DEFAULT_CONFIG.scope,
       {
         async text() {
@@ -63,7 +63,7 @@ describe("scope resolver", () => {
   test("never accepts invented ScopeSeed IDs", async () => {
     const decision = await resolveScope(
       "Build a new thing",
-      { features: parseFeatureRegistry(registry) },
+      { enabled: true, features: parseFeatureRegistry(registry) },
       DEFAULT_CONFIG.scope,
       {
         async text() {
@@ -81,4 +81,42 @@ describe("scope resolver", () => {
     expect(decision.featureId).toBeUndefined()
     expect(decision.slug).toBe("new-thing")
   })
+
+  test("supports a custom ScopeSeed feature id pattern", async () => {
+    const companionRegistry = registry.replaceAll("F001", "C001").replaceAll("F002", "C002")
+    const features = parseFeatureRegistry(companionRegistry, "^C\\d{3,}$")
+    const decision = await resolveScope(
+      "Implement C001 now",
+      { enabled: true, features },
+      DEFAULT_CONFIG.scope,
+    )
+
+    expect(features.map((feature) => feature.id)).toEqual(["C001", "C002"])
+    expect(decision.featureId).toBe("C001")
+    expect(decision.slug).toBe("panel-authentication")
+  })
+
+  test("does not add a feature id when ScopeSeed is not in use", async () => {
+    const decision = await resolveScope(
+      "Implement companion authentication",
+      { enabled: false, features: [] },
+      DEFAULT_CONFIG.scope,
+      {
+        async text() {
+          return JSON.stringify({
+            kind: "feature",
+            featureId: "C001",
+            slug: "companion-authentication",
+            confidence: 0.99,
+            reason: "Feature work.",
+          })
+        },
+      },
+    )
+
+    expect(decision.kind).toBe("feature")
+    expect(decision.featureId).toBeUndefined()
+    expect(decision.slug).toBe("companion-authentication")
+  })
+
 })

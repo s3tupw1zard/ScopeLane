@@ -8,8 +8,8 @@ ScopeLane targets the native OpenCode V2 plugin API.
 - Coding agents may inspect Git state but must not own Git mutations.
 - ScopeLane owns branch creation, worktree creation, staging, commits, and pushes.
 - A checkpoint trigger is not an instruction to commit. It only starts semantic analysis.
-- Feature branches may split exactly one level: `F001` -> `F001-A`, `F001-B`, etc.
-- If a feature part itself needs another split, ScopeSeed must classify the work as a separate feature instead.
+- ScopeSeed-backed feature branches may split exactly one level: `<ID>` -> `<ID>-A`, `<ID>-B`, etc.; the ID format is repository-configurable.
+- If a ScopeSeed-backed feature part itself needs another split, ScopeSeed must classify the work as a separate feature instead.
 - Once a split exists, the parent feature branch becomes integration-only for normal development.
 - Prefer deterministic validation around every LLM decision.
 

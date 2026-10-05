@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_CONFIG } from "../src/config"
 import {
+  findFeatureId,
+  findFeaturePart,
   isProtectedBranch,
   parseFeatureBranch,
   renderFeatureBranch,
@@ -65,4 +67,16 @@ describe("branch naming", () => {
     expect(isProtectedBranch("main", config)).toBe(true)
     expect(isProtectedBranch("feat/F001-panel-auth", config)).toBe(false)
   })
+
+  test("finds feature ids using the configured pattern", () => {
+    const companion = {
+      ...config,
+      featureIdPattern: "^C\\d{3,}$",
+    }
+
+    expect(findFeatureId("Work on C001 authentication", companion)).toBe("C001")
+    expect(findFeatureId("Work on F001 authentication", companion)).toBeUndefined()
+    expect(findFeaturePart("Continue C001-B now", "C001", companion)).toBe("B")
+  })
+
 })
