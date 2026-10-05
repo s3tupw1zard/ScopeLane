@@ -1,0 +1,100 @@
+name: PR npm package build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.allow.outputs.allowed }}
+    steps:
+      - id: allow
+        shell: bash
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EXTRA_ALLOWED_ACTORS: ${{ vars.PR_PACKAGE_ALLOWED_ACTORS }}
+        run: |
+          set -euo pipefail
+          allowed=false
+          author="${PR_AUTHOR,,}"
+          for candidate in s3tupw1zard ${EXTRA_ALLOWED_ACTORS//,/ }; do
+            [[ -n "$candidate" ]] || continue
+            if [[ "${candidate,,}" == "$author" ]]; then
+              allowed=true
+              break
+            fi
+          done
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          if [[ "$allowed" != "true" ]]; then
+            echo "::notice::Skipping PR package build for unapproved author $PR_AUTHOR"
+          fi
+
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --ignore-scripts
+
+      - name: Verify package
+        run: bun run verify
+
+      - name: Prepare GitHub Packages preview
+        shell: bash
+        env:
+          PREVIEW_NAME: "@s3tupw1zard/opencode-scopelane"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          base_version="$(node -p "require('./package.json').version.split('-')[0]")"
+          preview_version="${base_version}-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+
+          PREVIEW_VERSION="$preview_version" node --input-type=module <<'NODE'
+          import fs from "node:fs"
+          const file = "package.json"
+          const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+          pkg.name = process.env.PREVIEW_NAME
+          pkg.version = process.env.PREVIEW_VERSION
+          pkg.publishConfig = {
+            ...(pkg.publishConfig ?? {}),
+            registry: "https://npm.pkg.github.com",
+          }
+          delete pkg.publishConfig.access
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n")
+          NODE
+
+          pack_json="$(npm pack --ignore-scripts --json)"
+          tarball="$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(p[0].filename)' <<<"$pack_json")"
+          mv "$tarball" "${RUNNER_TEMP}/package.tgz"
+
+          echo "Prepared $PREVIEW_NAME@$preview_version"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-npm-scopelane
+          path: ${{ runner.temp }}/package.tgz
+          if-no-files-found: error
+          retention-days: 7
