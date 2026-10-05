@@ -44,24 +44,40 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Detect package
+        id: package
+        shell: bash
+        run: |
+          if [[ -f package.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json exists on this PR merge commit yet; package preview is skipped."
+          fi
+
       - name: Set up Node.js
+        if: steps.package.outputs.present == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "24"
           package-manager-cache: false
 
       - name: Set up Bun
+        if: steps.package.outputs.present == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: steps.package.outputs.present == 'true'
         run: bun install --ignore-scripts
 
       - name: Verify package
+        if: steps.package.outputs.present == 'true'
         run: bun run verify
 
       - name: Prepare GitHub Packages preview
+        if: steps.package.outputs.present == 'true'
         shell: bash
         env:
           PREVIEW_NAME: "@s3tupw1zard/opencode-scopelane"
@@ -92,6 +108,7 @@ jobs:
           echo "Prepared $PREVIEW_NAME@$preview_version"
 
       - name: Upload package artifact
+        if: steps.package.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pr-npm-scopelane
