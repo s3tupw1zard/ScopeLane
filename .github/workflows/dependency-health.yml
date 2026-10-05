@@ -1,0 +1,51 @@
+name: Dependency health
+
+on:
+  push:
+    branches:
+      - "feat/bootstrap-scopelane"
+      - "feat/**"
+      - "fix/**"
+      - "refactor/**"
+  pull_request:
+    branches:
+      - "feat/bootstrap-scopelane"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-dependencies:
+    name: Production dependency health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Check production install for deprecated packages
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$(mktemp)"
+          npm install \
+            --omit=dev \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund \
+            --package-lock=false 2>&1 | tee "$log"
+
+          if grep -Eiq 'npm (warn|WARN) deprecated' "$log"; then
+            echo "::error::The production dependency graph contains deprecated npm packages."
+            grep -Ei 'npm (warn|WARN) deprecated' "$log" || true
+            exit 1
+          fi
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate --package-lock=false
