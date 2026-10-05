@@ -142,3 +142,28 @@ export function isGitMutationCommand(command: string, depth = 0): boolean {
 
   return nestedShellCommands(tokens).some((nested) => isGitMutationCommand(nested, depth + 1))
 }
+
+
+export function isReadOnlyGitInspectionCommand(command: string): boolean {
+  const tokens = tokenize(command)
+  if (tokens.length === 0 || !gitExecutable(tokens[0]!)) return false
+
+  if (
+    tokens.some((token) =>
+      token === "&&" ||
+      token === "||" ||
+      token === ";" ||
+      token === "|" ||
+      token === ">" ||
+      token === ">>" ||
+      token === "<" ||
+      token === "2>" ||
+      token === "2>>"
+    )
+  ) {
+    return false
+  }
+
+  if (nestedShellCommands(tokens).length > 0) return false
+  return !isGitMutationCommand(command)
+}
