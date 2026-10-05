@@ -1,0 +1,65 @@
+name: Dependency health
+
+on:
+  push:
+    branches:
+      - "feat/bootstrap-scopelane"
+      - "feat/**"
+      - "fix/**"
+      - "refactor/**"
+  pull_request:
+    branches:
+      - "feat/bootstrap-scopelane"
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: Dependency health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Check install for deprecated packages
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$(mktemp)"
+          npm install \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund \
+            --package-lock=false 2>&1 | tee "$log"
+
+          if grep -Eiq 'npm (warn|WARN) deprecated' "$log"; then
+            echo "::error::The dependency graph contains deprecated npm packages."
+            grep -Ei 'npm (warn|WARN) deprecated' "$log" || true
+            exit 1
+          fi
+
+      - name: Reject outdated direct dependencies
+        shell: bash
+        run: |
+          set +e
+          npm outdated --long
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::One or more direct dependencies are outdated. Dependabot should open an update PR."
+            exit "$status"
+          fi
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate --package-lock=false

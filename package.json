@@ -1,0 +1,46 @@
+{
+  "name": "opencode-scopelane",
+  "version": "2026.1.0-dev.3",
+  "description": "OpenCode V2 plugin for intelligent Git branching, worktree isolation, semantic commits, and safe automated pushes.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "pack:check": "npm pack --dry-run",
+    "verify": "bun run typecheck && bun test && npm run pack:check"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/s3tupw1zard/ScopeLane.git"
+  },
+  "homepage": "https://github.com/s3tupw1zard/ScopeLane#readme",
+  "bugs": {
+    "url": "https://github.com/s3tupw1zard/ScopeLane/issues"
+  },
+  "keywords": [
+    "opencode",
+    "git",
+    "worktree",
+    "semantic-commits",
+    "scopeseed",
+    "automation"
+  ],
+  "main": "./src/index.ts",
+  "license": "GPL-2.0-only",
+  "files": [
+    "src/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
