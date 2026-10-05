@@ -10,14 +10,16 @@ on:
   pull_request:
     branches:
       - "feat/bootstrap-scopelane"
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  production-dependencies:
-    name: Production dependency health
+  dependencies:
+    name: Dependency health
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,23 +31,35 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
-      - name: Check production install for deprecated packages
+      - name: Check install for deprecated packages
         shell: bash
         run: |
           set -o pipefail
           log="$(mktemp)"
           npm install \
-            --omit=dev \
             --ignore-scripts \
             --no-audit \
             --no-fund \
             --package-lock=false 2>&1 | tee "$log"
 
           if grep -Eiq 'npm (warn|WARN) deprecated' "$log"; then
-            echo "::error::The production dependency graph contains deprecated npm packages."
+            echo "::error::The dependency graph contains deprecated npm packages."
             grep -Ei 'npm (warn|WARN) deprecated' "$log" || true
             exit 1
           fi
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=moderate --package-lock=false
+      - name: Reject outdated direct dependencies
+        shell: bash
+        run: |
+          set +e
+          npm outdated --long
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error::One or more direct dependencies are outdated. Dependabot should open an update PR."
+            exit "$status"
+          fi
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate --package-lock=false
