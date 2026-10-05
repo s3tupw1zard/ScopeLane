@@ -42,6 +42,31 @@ export function isProtectedBranch(branch: string, config: BranchConfig): boolean
   return config.protected.includes(branch)
 }
 
+export function findFeatureId(text: string, config: BranchConfig): string | undefined {
+  const pattern = stripAnchors(config.featureIdPattern)
+  const match = text.match(new RegExp("(?:^|[^A-Za-z0-9])((?:" + pattern + "))(?=$|[^A-Za-z0-9])", "i"))
+  return match?.[1]
+}
+
+export function findFeaturePart(
+  text: string,
+  featureId: string,
+  config: BranchConfig,
+): string | undefined {
+  const part = stripAnchors(config.featurePartPattern)
+  const match = text.match(
+    new RegExp(
+      "(?:^|[^A-Za-z0-9])" +
+        escapeRegExp(featureId) +
+        "-((?:" +
+        part +
+        "))(?=$|[^A-Za-z0-9])",
+      "i",
+    ),
+  )
+  return match?.[1]
+}
+
 export function renderSimpleBranch(
   kind: BranchKind,
   slugInput: string,
