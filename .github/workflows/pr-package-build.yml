@@ -2,7 +2,7 @@ name: PR npm package build
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -17,7 +17,10 @@ jobs:
         shell: bash
         env:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
           EXTRA_ALLOWED_ACTORS: ${{ vars.PR_PACKAGE_ALLOWED_ACTORS }}
+          EXTRA_ALLOWED_PRS: ${{ vars.PR_PACKAGE_ALLOWED_PRS }}
         run: |
           set -euo pipefail
           allowed=false
@@ -29,6 +32,26 @@ jobs:
               break
             fi
           done
+
+          if [[ "$allowed" != "true" ]]; then
+            for candidate in ${EXTRA_ALLOWED_PRS//,/ }; do
+              [[ -n "$candidate" ]] || continue
+              if [[ "$candidate" == "$PR_NUMBER" ]]; then
+                allowed=true
+                break
+              fi
+            done
+          fi
+
+          if [[ "$allowed" != "true" ]]; then
+            for label in $PR_LABELS; do
+              if [[ "$label" == "pr-package-approved" ]]; then
+                allowed=true
+                break
+              fi
+            done
+          fi
+
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
           if [[ "$allowed" != "true" ]]; then
             echo "::notice::Skipping PR package build for unapproved author $PR_AUTHOR"
