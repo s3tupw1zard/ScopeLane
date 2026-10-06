@@ -138,3 +138,32 @@ jobs:
           path: ${{ runner.temp }}/package.tgz
           if-no-files-found: error
           retention-days: 7
+
+  check:
+    name: check
+    needs: [authorize, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR package workflow result
+        shell: bash
+        env:
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$AUTHORIZE_RESULT" != "success" ]]; then
+            echo "Authorization job did not succeed: $AUTHORIZE_RESULT" >&2
+            exit 1
+          fi
+
+          case "$BUILD_RESULT" in
+            success|skipped)
+              echo "PR package workflow result is acceptable: $BUILD_RESULT"
+              ;;
+            *)
+              echo "PR package build failed: $BUILD_RESULT" >&2
+              exit 1
+              ;;
+          esac
