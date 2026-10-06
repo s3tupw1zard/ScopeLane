@@ -1,0 +1,169 @@
+name: PR npm package build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.allow.outputs.allowed }}
+    steps:
+      - id: allow
+        shell: bash
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          EXTRA_ALLOWED_ACTORS: ${{ vars.PR_PACKAGE_ALLOWED_ACTORS }}
+          EXTRA_ALLOWED_PRS: ${{ vars.PR_PACKAGE_ALLOWED_PRS }}
+        run: |
+          set -euo pipefail
+          allowed=false
+          author="${PR_AUTHOR,,}"
+          for candidate in s3tupw1zard ${EXTRA_ALLOWED_ACTORS//,/ }; do
+            [[ -n "$candidate" ]] || continue
+            if [[ "${candidate,,}" == "$author" ]]; then
+              allowed=true
+              break
+            fi
+          done
+
+          if [[ "$allowed" != "true" ]]; then
+            for candidate in ${EXTRA_ALLOWED_PRS//,/ }; do
+              [[ -n "$candidate" ]] || continue
+              if [[ "$candidate" == "$PR_NUMBER" ]]; then
+                allowed=true
+                break
+              fi
+            done
+          fi
+
+          if [[ "$allowed" != "true" ]]; then
+            for label in $PR_LABELS; do
+              if [[ "$label" == "pr-package-approved" ]]; then
+                allowed=true
+                break
+              fi
+            done
+          fi
+
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          if [[ "$allowed" != "true" ]]; then
+            echo "::notice::Skipping PR package build for unapproved author $PR_AUTHOR"
+          fi
+
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR merge commit
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Detect package
+        id: package
+        shell: bash
+        run: |
+          if [[ -f package.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json exists on this PR merge commit yet; package preview is skipped."
+          fi
+
+      - name: Set up Node.js
+        if: steps.package.outputs.present == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Set up Bun
+        if: steps.package.outputs.present == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        if: steps.package.outputs.present == 'true'
+        run: bun install --ignore-scripts
+
+      - name: Verify package
+        if: steps.package.outputs.present == 'true'
+        run: bun run verify
+
+      - name: Prepare GitHub Packages preview
+        if: steps.package.outputs.present == 'true'
+        shell: bash
+        env:
+          PREVIEW_NAME: "@s3tupw1zard/opencode-scopelane"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          base_version="$(node -p "require('./package.json').version.split('-')[0]")"
+          preview_version="${base_version}-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+
+          PREVIEW_VERSION="$preview_version" node --input-type=module <<'NODE'
+          import fs from "node:fs"
+          const file = "package.json"
+          const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+          pkg.name = process.env.PREVIEW_NAME
+          pkg.version = process.env.PREVIEW_VERSION
+          pkg.publishConfig = {
+            ...(pkg.publishConfig ?? {}),
+            registry: "https://npm.pkg.github.com",
+          }
+          delete pkg.publishConfig.access
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n")
+          NODE
+
+          pack_json="$(npm pack --ignore-scripts --json)"
+          tarball="$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(p[0].filename)' <<<"$pack_json")"
+          mv "$tarball" "${RUNNER_TEMP}/package.tgz"
+
+          echo "Prepared $PREVIEW_NAME@$preview_version"
+
+      - name: Upload package artifact
+        if: steps.package.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-npm-scopelane
+          path: ${{ runner.temp }}/package.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  check:
+    name: check
+    needs: [authorize, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR package workflow result
+        shell: bash
+        env:
+          AUTHORIZE_RESULT: ${{ needs.authorize.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$AUTHORIZE_RESULT" != "success" ]]; then
+            echo "Authorization job did not succeed: $AUTHORIZE_RESULT" >&2
+            exit 1
+          fi
+
+          case "$BUILD_RESULT" in
+            success|skipped)
+              echo "PR package workflow result is acceptable: $BUILD_RESULT"
+              ;;
+            *)
+              echo "PR package build failed: $BUILD_RESULT" >&2
+              exit 1
+              ;;
+          esac
